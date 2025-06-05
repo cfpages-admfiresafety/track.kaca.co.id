@@ -79,8 +79,8 @@ function handleOptions(request, currentFunctionUrl) {
 }
 
 export async function onRequest(context) {
-  const { request, env, next } = context; // `next` might not be used here but good to destructure
-  const currentFunctionUrl = request.url; // The URL of the function itself
+  const { request, env, next } = context;
+  const currentFunctionUrl = request.url;
 
   if (request.method === 'OPTIONS') {
     return handleOptions(request, currentFunctionUrl);
@@ -102,6 +102,10 @@ export async function onRequest(context) {
   const linkId = url.searchParams.get('linkId');
   const period = url.searchParams.get('period') || 'last30';
   const tz = url.searchParams.get('tz') || 'UTC';
+  // For list-domain-links, we might want pagination params in the future
+  const limit = url.searchParams.get('limit') || '50'; // Default to 50 links, adjust as needed
+  const pageToken = url.searchParams.get('pageToken');
+
 
   let apiUrl = '';
   let apiOptions = {
@@ -122,10 +126,20 @@ export async function onRequest(context) {
         apiUrl = `${BASE_STATS_URL}/statistics/domain/${domainId}?period=${period}&tz=${tz}`;
         apiOptions.headers.accept = '*/*';
         break;
-      case 'get-domain-link-clicks':
-        if (!domainId) return new Response(JSON.stringify({ error: "domainId parameter is required." }), { status: 400, headers: { ...currentCorsHeaders, 'Content-Type': 'application/json' } });
-        apiUrl = `${BASE_STATS_URL}/statistics/domain/${domainId}/link_clicks`;
-        apiOptions.headers.accept = '*/*';
+      // 'get-domain-link-clicks' can be kept if we want to show quick click counts later,
+      // but not the primary source for the link list anymore.
+      // case 'get-domain-link-clicks': 
+      //   if (!domainId) return new Response(JSON.stringify({ error: "domainId parameter is required." }), { status: 400, headers: { ...currentCorsHeaders, 'Content-Type': 'application/json' } });
+      //   apiUrl = `${BASE_STATS_URL}/statistics/domain/${domainId}/link_clicks`;
+      //   apiOptions.headers.accept = '*/*';
+      //   break;
+      case 'list-domain-links': // NEW ACTION
+        if (!domainId) return new Response(JSON.stringify({ error: "domain_id parameter is required for list-domain-links." }), { status: 400, headers: { ...currentCorsHeaders, 'Content-Type': 'application/json' } });
+        apiUrl = `${BASE_API_URL}/api/links?domain_id=${domainId}&limit=${limit}`;
+        if (pageToken) {
+          apiUrl += `&pageToken=${pageToken}`;
+        }
+        // Default 'accept: application/json' is fine
         break;
       case 'get-link-stats':
         if (!linkId) return new Response(JSON.stringify({ error: "linkId parameter is required." }), { status: 400, headers: { ...currentCorsHeaders, 'Content-Type': 'application/json' } });

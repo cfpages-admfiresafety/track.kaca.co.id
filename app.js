@@ -304,26 +304,54 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    async function loadDomainDetails(domainId, hostname, forceRefresh = false) {
+    // --- Domain Details & Link Listing ---
+    let currentDomainLinks = []; // To store all links for current domain for pagination
+    let currentPageToken = null;
+    let prevPageToken = null; // For "Previous" button logic if needed
+
+    async function loadDomainDetails(domainId, hostname, forceRefresh = false, pageToken = null) {
         currentDomainId = domainId; currentDomainHostname = hostname;
         currentLinkId = null; currentLinkPath = null; // Reset link context
         switchToView('domainDetail');
         selectedDomainHostnameEl.textContent = hostname;
 
-        const [stats, linksData] = await Promise.all([
+        // Fetch domain stats and the list of all links
+        // The 'list-domain-links' endpoint returns { count, links, nextPageToken }
+        const paramsForLinks = { domainId };
+        if (pageToken) {
+            paramsForLinks.pageToken = pageToken;
+        }
+
+        const [stats, linksResponse] = await Promise.all([
             shortIOApiCall('get-domain-stats', { domainId }, forceRefresh),
-            shortIOApiCall('get-domain-link-clicks', { domainId }, forceRefresh)
+            shortIOApiCall('list-domain-links', paramsForLinks, forceRefresh) // Use new action
         ]);
 
-        if (stats) renderDomainStats(stats);
-        if (linksData) renderLinksList(linksData);
+        if (stats) {
+            renderDomainStats(stats);
+            // The 'Total Links' from stats might be different from the actual count of all links.
+            // We can decide which one to prioritize or show both.
+            // For now, domainStatsContainer shows stats.links (from stats endpoint)
+        }
+        if (linksResponse && linksResponse.links) {
+            currentDomainLinks = linksResponse.links; // Store for current view
+            currentPageToken = linksResponse.nextPageToken || null; // Store for "Next" button
+            // prevPageToken would need to be managed if we implement full pagination
+            renderLinksList(currentDomainLinks, linksResponse.nextPageToken);
+        } else {
+            linksListContainer.innerHTML = '<p class="text-gray-600">No links found in this domain or failed to load them.</p>';
+            document.getElementById('linksPaginationContainer').innerHTML = '';
+        }
     }
 
     function renderDomainStats(stats) {
+        // The stats.links value is from the statistics endpoint (e.g., new links in period, or total active links)
+        // It might differ from the count of *all* links retrieved by the list-domain-links endpoint.
+        // You might want to clarify in the UI or remove one if it's confusing.
         domainStatsContainer.innerHTML = `
             <div class="p-3 bg-indigo-50 rounded-md"><span class="font-bold text-indigo-700">Total Clicks:</span> ${stats.clicks?.toLocaleString() || 0}</div>
             <div class="p-3 bg-purple-50 rounded-md"><span class="font-bold text-purple-700">Human Clicks:</span> ${stats.humanClicks?.toLocaleString() || 0}</div>
-            <div class="p-3 bg-pink-50 rounded-md"><span class="font-bold text-pink-700">Total Links:</span> ${stats.links?.toLocaleString() || 0}</div>`;
+            <div class="p-3 bg-pink-50 rounded-md"><span class="font-bold text-pink-700">Domain Stat Links:</span> ${stats.links?.toLocaleString() || 0}</div>`;
         
         if (stats.clickStatistics?.datasets?.[0]?.data?.length) renderLineChart('domainClicksChart', 'Clicks', stats.clickStatistics.datasets[0].data); else destroyChart('domainClicksChart');
         if (stats.referer?.length) renderBarChart('domainReferrersChart', stats.referer.map(r => r.referer || 'Direct'), stats.referer.map(r => r.score), 'Clicks', 'Referrers'); else destroyChart('domainReferrersChart');
@@ -332,36 +360,66 @@ document.addEventListener('DOMContentLoaded', () => {
         if (stats.os?.length) renderBarChart('domainOsChart', stats.os.map(o => o.os), stats.os.map(o => o.score), 'Sessions', 'Operating Systems'); else destroyChart('domainOsChart');
     }
 
-    function renderLinksList(linksData) {
+    function renderLinksList(links, nextPageTokenForPagination) { // Now takes the array of link objects
         linksListContainer.innerHTML = '';
-        const linkIds = Object.keys(linksData);
-        if (linkIds.length === 0) {
-            linksListContainer.innerHTML = '<p class="text-gray-600">No links with clicks found in this domain (for the selected period).</p>'; return;
+        const paginationContainer = document.getElementById('linksPaginationContainer');
+        paginationContainer.innerHTML = ''; // Clear previous pagination
+
+        if (!links || links.length === 0) {
+            linksListContainer.innerHTML = '<p class="text-gray-600">No links found in this domain.</p>';
+            return;
         }
-        linkIds.forEach(linkId => {
+
+        links.forEach(link => { // link is now a full link object
             const linkItem = document.createElement('div');
-            linkItem.className = 'bg-gray-50 p-3 rounded-md shadow-sm hover:shadow-md transition-shadow flex justify-between items-center border';
-            linkItem.innerHTML = `<div><span class="font-semibold">Link ID: ${linkId}</span> <span class="text-sm text-gray-500 ml-2">(Clicks: ${linksData[linkId].toLocaleString()})</span></div>
-                                  <button data-linkid="${linkId}" class="text-sm bg-blue-500 hover:bg-blue-600 text-white py-1 px-3 rounded">View Stats</button>`;
-            linkItem.querySelector('button').addEventListener('click', (e) => loadLinkDetails(e.target.dataset.linkid));
+            linkItem.className = 'bg-gray-50 p-3 rounded-md shadow-sm hover:shadow-md transition-shadow flex justify-between items-center border border-gray-200';
+            
+            // Display link path and original URL
+            const pathDisplay = link.path ? `/${link.path}` : (link.shortURL ? new URL(link.shortURL).pathname : 'N/A');
+            const originalUrlDisplay = link.originalURL || 'N/A';
+
+            linkItem.innerHTML = `
+                <div class="flex-grow mr-4 overflow-hidden">
+                    <p class="font-semibold text-gray-800 truncate" title="${pathDisplay}">Path: ${pathDisplay}</p>
+                    <p class="text-sm text-blue-600 truncate" title="${originalUrlDisplay}">
+                        Original: <a href="${link.originalURL}" target="_blank" class="hover:underline">${originalUrlDisplay}</a>
+                    </p>
+                    <p class="text-xs text-gray-500">ID: ${link.idString || link.id}</p>
+                </div>
+                <button data-linkid="${link.idString || link.id}" class="text-sm bg-blue-500 hover:bg-blue-600 text-white py-1 px-3 rounded whitespace-nowrap">View Stats</button>
+            `;
+            linkItem.querySelector('button').addEventListener('click', (e) => {
+                loadLinkDetails(e.target.dataset.linkid);
+            });
             linksListContainer.appendChild(linkItem);
         });
+
+        // Basic "Next" pagination
+        if (nextPageTokenForPagination) {
+            const nextButton = document.createElement('button');
+            nextButton.textContent = 'Next Page';
+            nextButton.className = 'bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline';
+            nextButton.addEventListener('click', () => {
+                loadDomainDetails(currentDomainId, currentDomainHostname, true, nextPageTokenForPagination); // forceRefresh true to get new page
+            });
+            paginationContainer.appendChild(nextButton);
+        }
+         // TODO: Add "Previous" button if desired, would require storing previous tokens.
     }
 
     async function loadLinkDetails(linkId, forceRefresh = false) {
         currentLinkId = linkId;
         switchToView('linkDetail');
         
-        linkDetailIdDisplayEl.textContent = linkId; // Show ID immediately
-        selectedLinkPathDisplayEl.textContent = `ID: ${linkId}`; // Placeholder
+        linkDetailIdDisplayEl.textContent = linkId;
+        selectedLinkPathDisplayEl.textContent = `ID: ${linkId}`;
         linkDetailShortUrlEl.textContent = 'Loading...';
         linkDetailOriginalUrlEl.textContent = 'Loading...';
         linkDetailOriginalUrlEl.removeAttribute('href');
 
-
         const [stats, linkInfo] = await Promise.all([
             shortIOApiCall('get-link-stats', { linkId }, forceRefresh),
-            shortIOApiCall('get-link-info', { linkId }, forceRefresh)
+            shortIOApiCall('get-link-info', { linkId }, forceRefresh) // Uses linkId (idString usually)
         ]);
 
         if (linkInfo) {
@@ -374,17 +432,16 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 linkDetailOriginalUrlEl.textContent = 'N/A';
             }
-            updateBreadcrumbs(); // Update breadcrumb with path
+            updateBreadcrumbs();
         } else {
-            currentLinkPath = `ID: ${linkId}`; // Fallback for breadcrumb
-             selectedLinkPathDisplayEl.textContent = currentLinkPath;
+            currentLinkPath = `ID: ${linkId}`;
+            selectedLinkPathDisplayEl.textContent = currentLinkPath;
             linkDetailShortUrlEl.textContent = 'Error loading info';
             linkDetailOriginalUrlEl.textContent = 'Error loading info';
             updateBreadcrumbs();
         }
         
         if (stats) renderLinkStats(stats); else {
-            // Clear charts if stats fail to load
             ['linkClicksChart', 'linkReferrersChart', 'linkBrowsersChart', 'linkCountriesChart', 'linkOsChart'].forEach(destroyChart);
             linkStatsContainer.innerHTML = '<p class="text-red-500 col-span-full">Failed to load link statistics.</p>';
         }
@@ -408,7 +465,10 @@ document.addEventListener('DOMContentLoaded', () => {
     refreshDataButton.addEventListener('click', () => {
         showError(null);
         if (currentView === 'domains') loadDomains(true);
-        else if (currentView === 'domainDetail' && currentDomainId) loadDomainDetails(currentDomainId, currentDomainHostname, true);
+        else if (currentView === 'domainDetail' && currentDomainId) {
+             // For domain detail, refresh fetches the first page of links again
+            loadDomainDetails(currentDomainId, currentDomainHostname, true, null);
+        }
         else if (currentView === 'linkDetail' && currentLinkId) loadLinkDetails(currentLinkId, true);
         else if (currentApiKey) loadDomains(true);
         else switchToView('apiKey');
