@@ -47,6 +47,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let chartInstances = {};
 
+    // --- Chart Helper ---
     function destroyChart(chartId) {
         if (chartInstances[chartId]) {
             chartInstances[chartId].destroy();
@@ -60,8 +61,30 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!ctx) return;
         chartInstances[canvasId] = new Chart(ctx, {
             type: 'bar',
-            data: { labels, datasets: [{ label: dataLabel, data, backgroundColor: 'rgba(54, 162, 235, 0.6)', borderColor: 'rgba(54, 162, 235, 1)', borderWidth: 1 }] },
-            options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, suggestedMax: Math.max(...data) + 1  } }, plugins: { legend: { display: true, position: 'top' }, title: { display: false, text: chartLabel} } }
+            data: { 
+                labels, 
+                datasets: [{ 
+                    label: dataLabel, 
+                    data, 
+                    backgroundColor: 'rgba(54, 162, 235, 0.6)', 
+                    borderColor: 'rgba(54, 162, 235, 1)', 
+                    borderWidth: 1 
+                }] 
+            },
+            options: { 
+                responsive: true, 
+                maintainAspectRatio: false, // This allows the chart to use the full height of chart-container
+                scales: { 
+                    y: { 
+                        beginAtZero: true, 
+                        suggestedMax: data.length > 0 ? Math.max(...data) + 1 : 1 // Prevent error on empty data
+                    } 
+                }, 
+                plugins: { 
+                    legend: { display: true, position: 'top' }, 
+                    title: { display: false, text: chartLabel} 
+                } 
+            }
         });
     }
 
@@ -69,20 +92,30 @@ document.addEventListener('DOMContentLoaded', () => {
         destroyChart(canvasId);
         const ctx = document.getElementById(canvasId)?.getContext('2d');
         if (!ctx) return;
+        const yData = timeData.map(d => d.y);
         chartInstances[canvasId] = new Chart(ctx, {
             type: 'line',
             data: {
                 datasets: [{
                     label: label,
-                    data: timeData.map(d => ({ x: d.x, y: d.y })), // Ensure date-fns adapter handles string dates
+                    data: timeData.map(d => ({ x: d.x, y: d.y })),
                     fill: false, borderColor: 'rgb(75, 192, 192)', tension: 0.1
                 }]
             },
             options: {
-                responsive: true, maintainAspectRatio: false,
+                responsive: true, 
+                maintainAspectRatio: false, // This allows the chart to use the full height of chart-container
                 scales: {
-                    x: { type: 'time', time: { unit: 'day', tooltipFormat: 'MMM d, yyyy', displayFormats: { day: 'MMM d' } }, title: { display: true, text: 'Date' } },
-                    y: { beginAtZero: true, title: { display: true, text: 'Clicks' }, suggestedMax: Math.max(...timeData.map(d => d.y)) + 1 }
+                    x: { 
+                        type: 'time', 
+                        time: { unit: 'day', tooltipFormat: 'MMM d, yyyy', displayFormats: { day: 'MMM d' } }, 
+                        title: { display: true, text: 'Date' } 
+                    },
+                    y: { 
+                        beginAtZero: true, 
+                        title: { display: true, text: 'Clicks' }, 
+                        suggestedMax: yData.length > 0 ? Math.max(...yData) + 1 : 1 // Prevent error on empty data
+                    }
                 }
             }
         });

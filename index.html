@@ -6,11 +6,18 @@
     <title>Short.io Stats Tracker</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script> <!-- Added date adapter -->
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
     <style>
         .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 20px auto; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        canvas { max-width: 100%; height: auto !important; }
+        /* canvas { max-width: 100%; height: auto !important; } */ /* Remove this if using wrapper div approach */
+
+        .chart-container {
+            position: relative; /* Needed for Chart.js responsiveness */
+            /* Adjust max-height as needed. Tailwind: max-h-64, max-h-72, max-h-80, max-h-96 */
+            max-height: 320px; /* Example: 320px. Equivalent to max-h-80 in Tailwind (20rem) */
+            width: 100%;
+        }
     </style>
 </head>
 <body class="bg-gray-100 font-sans">
@@ -22,7 +29,8 @@
 
         <!-- API Key View -->
         <div id="apiKeyView" class="mt-6 bg-white shadow-md rounded-b-lg p-6">
-            <h2 class="text-2xl font-semibold mb-4">Enter API Key</h2>
+            <!-- ... (API key content unchanged) ... -->
+             <h2 class="text-2xl font-semibold mb-4">Enter API Key</h2>
             <p class="mb-4 text-sm text-gray-600">Your Short.io API Key (starting with 'sk_') will be stored in your browser's local storage.</p>
             <div class="mb-4">
                 <label for="apiKeyInput" class="block text-gray-700 text-sm font-bold mb-2">API Key:</label>
@@ -54,7 +62,7 @@
 
             <!-- Domains List View -->
             <div id="domainsView" class="hidden bg-white shadow-md rounded-lg p-6">
-                <h2 class="text-2xl font-semibold mb-4">Your Domains</h2>
+                 <h2 class="text-2xl font-semibold mb-4">Your Domains</h2>
                 <div id="domainsListContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
             </div>
 
@@ -65,11 +73,26 @@
                     <h3 class="text-xl font-semibold mb-3">Domain Statistics <span class="text-base font-normal text-gray-500">(Last 30 Days, UTC)</span></h3>
                     <div id="domainStatsContainer" class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4"></div>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div><h4 class="text-lg font-medium mb-2">Clicks Over Time</h4><canvas id="domainClicksChart"></canvas></div>
-                        <div><h4 class="text-lg font-medium mb-2">Top Referrers</h4><canvas id="domainReferrersChart"></canvas></div>
-                        <div><h4 class="text-lg font-medium mb-2">Top Browsers</h4><canvas id="domainBrowsersChart"></canvas></div>
-                        <div><h4 class="text-lg font-medium mb-2">Top Countries</h4><canvas id="domainCountriesChart"></canvas></div>
-                        <div><h4 class="text-lg font-medium mb-2">Top OS</h4><canvas id="domainOsChart"></canvas></div>
+                        <div>
+                            <h4 class="text-lg font-medium mb-2">Clicks Over Time</h4>
+                            <div class="chart-container"><canvas id="domainClicksChart"></canvas></div>
+                        </div>
+                        <div>
+                            <h4 class="text-lg font-medium mb-2">Top Referrers</h4>
+                            <div class="chart-container"><canvas id="domainReferrersChart"></canvas></div>
+                        </div>
+                        <div>
+                            <h4 class="text-lg font-medium mb-2">Top Browsers</h4>
+                            <div class="chart-container"><canvas id="domainBrowsersChart"></canvas></div>
+                        </div>
+                        <div>
+                            <h4 class="text-lg font-medium mb-2">Top Countries</h4>
+                            <div class="chart-container"><canvas id="domainCountriesChart"></canvas></div>
+                        </div>
+                         <div>
+                            <h4 class="text-lg font-medium mb-2">Top OS</h4>
+                            <div class="chart-container"><canvas id="domainOsChart"></canvas></div>
+                        </div>
                     </div>
                 </div>
                 <div>
@@ -83,17 +106,32 @@
                 <h2 id="linkDetailTitle" class="text-2xl font-semibold mb-1">Link: <span id="selectedLinkPathDisplay" class="font-mono"></span></h2>
                 <div class="mb-4 text-sm text-gray-600">
                     <p>Short URL: <span id="linkDetailShortUrl" class="font-mono text-blue-600"></span></p>
-                    <p>Original URL: <a id="linkDetailOriginalUrl" href="#" target="_blank" class="text-blue-500 hover:underline font-mono"></a></p>
+                    <p>Original URL: <a id="linkDetailOriginalUrl" href="#" target="_blank" class="text-blue-500 hover:underline font-mono break-all"></a></p>
                      <p>ID: <span id="linkDetailIdDisplay" class="font-mono text-gray-500"></span></p>
                 </div>
                 <h3 class="text-xl font-semibold mb-3">Link Statistics <span class="text-base font-normal text-gray-500">(Last 30 Days, UTC)</span></h3>
                 <div id="linkStatsContainer" class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4"></div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div><h4 class="text-lg font-medium mb-2">Clicks Over Time</h4><canvas id="linkClicksChart"></canvas></div>
-                    <div><h4 class="text-lg font-medium mb-2">Top Referrers</h4><canvas id="linkReferrersChart"></canvas></div>
-                    <div><h4 class="text-lg font-medium mb-2">Top Browsers</h4><canvas id="linkBrowsersChart"></canvas></div>
-                    <div><h4 class="text-lg font-medium mb-2">Top Countries</h4><canvas id="linkCountriesChart"></canvas></div>
-                    <div><h4 class="text-lg font-medium mb-2">Top OS</h4><canvas id="linkOsChart"></canvas></div>
+                    <div>
+                        <h4 class="text-lg font-medium mb-2">Clicks Over Time</h4>
+                        <div class="chart-container"><canvas id="linkClicksChart"></canvas></div>
+                    </div>
+                    <div>
+                        <h4 class="text-lg font-medium mb-2">Top Referrers</h4>
+                        <div class="chart-container"><canvas id="linkReferrersChart"></canvas></div>
+                    </div>
+                    <div>
+                        <h4 class="text-lg font-medium mb-2">Top Browsers</h4>
+                        <div class="chart-container"><canvas id="linkBrowsersChart"></canvas></div>
+                    </div>
+                    <div>
+                        <h4 class="text-lg font-medium mb-2">Top Countries</h4>
+                        <div class="chart-container"><canvas id="linkCountriesChart"></canvas></div>
+                    </div>
+                    <div>
+                        <h4 class="text-lg font-medium mb-2">Top OS</h4>
+                        <div class="chart-container"><canvas id="linkOsChart"></canvas></div>
+                    </div>
                 </div>
             </div>
         </div>
