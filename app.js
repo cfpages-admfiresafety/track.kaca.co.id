@@ -1,4 +1,4 @@
-// app.js
+// app.js v.02 debugging jnck
 document.addEventListener('DOMContentLoaded', () => {
     // Assumes your Cloudflare Function is at /shortio-api relative to your Pages site
     const CLOUDFLARE_WORKER_URL = '/shortio-api';
@@ -37,6 +37,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const linkDetailOriginalUrlEl = document.getElementById('linkDetailOriginalUrl');
     const linkDetailIdDisplayEl = document.getElementById('linkDetailIdDisplay');
     const linkStatsContainer = document.getElementById('linkStatsContainer');
+    const resetDataButton = document.getElementById('resetDataButton'); // New element
 
     let currentApiKey = null;
     let currentView = 'apiKey';
@@ -44,6 +45,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentDomainHostname = null;
     let currentLinkId = null;
     let currentLinkPath = null; // For breadcrumbs
+    let activeLoadCounter = 0;
 
     let chartInstances = {};
 
@@ -121,10 +123,30 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    function updateLoadingIndicator(operation) { // operation is 'start' or 'end'
+        if (operation === 'start') {
+            activeLoadCounter++;
+        } else if (operation === 'end') {
+            activeLoadCounter--;
+        }
+
+        if (activeLoadCounter < 0) {
+            activeLoadCounter = 0; // Safety net, should not happen with correct usage
+        }
+
+        console.log("Active loads:", activeLoadCounter); // Optional: for debugging
+
+        if (activeLoadCounter > 0) {
+            loadingIndicator.style.display = 'block';
+        } else {
+            loadingIndicator.style.display = 'none';
+        }
+    }
+
     async function shortIOApiCall(action, params = {}, forceRefresh = false) {
         if (!currentApiKey) {
             showError("API Key is not set.");
-            switchToView('apiKey');
+            switchToView('apiKey'); // This will also attempt to clear data.
             return null;
         }
         if (CLOUDFLARE_WORKER_URL.startsWith('YOUR_')) {
@@ -141,7 +163,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 try {
                     const data = JSON.parse(cachedData);
                     const lastRetrieved = localStorage.getItem(lastRetrievedKey);
-                    if (lastRetrieved && document.getElementById('lastRetrievedTimestamp').offsetParent !== null) { // only update if visible
+                    if (lastRetrieved && document.getElementById('lastRetrievedTimestamp').offsetParent !== null) {
                          updateLastRetrievedTimestamp(new Date(lastRetrieved).toLocaleString());
                     }
                     return data;
@@ -149,8 +171,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        showLoading(true);
-        showError(null);
+        updateLoadingIndicator('start'); // Indicate a load operation has started
+        showError(null); // Clear previous errors (global error specifically)
 
         let queryParams = new URLSearchParams();
         queryParams.append('action', action);
@@ -166,16 +188,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 headers: { 'X-Shortio-Api-Key': currentApiKey, 'Content-Type': 'application/json' }
             });
 
-            const responseData = await response.json(); // Try to parse JSON first
+            const responseData = await response.json();
 
             if (!response.ok) {
-                const errorMsg = responseData.error + (responseData.details ? `: ${typeof responseData.details === 'string' ? responseData.details : JSON.stringify(responseData.details)}` : ` (Status: ${response.status})`);
-                console.error('API Error:', errorMsg);
-                showError(errorMsg);
+                const errorMsgBase = responseData.error || `Request failed with status ${response.status}`;
+                const errorDetails = responseData.details ? (typeof responseData.details === 'string' ? responseData.details : JSON.stringify(responseData.details)) : '';
+                const errorMsg = errorDetails ? `${errorMsgBase}: ${errorDetails}` : errorMsgBase;
+
+                console.error('API Error from shortIOApiCall:', errorMsg);
+                showError(errorMsg); // Show error in the UI
                 if (response.status === 401 || response.status === 403) {
-                    clearApiKey();
-                    switchToView('apiKey');
-                    showError("Invalid API Key or insufficient permissions. Please check your key.");
+                    // clearApiKey() is now more thorough via clearAllAppData()
+                    clearApiKey(); // This will also call clearAllAppData()
+                    switchToView('apiKey'); // Navigate to API key entry
+                    // The showError above would have already set the message.
+                    // We can enhance it here if needed for auth errors.
+                    showError("Invalid API Key or insufficient permissions. Please re-enter your key.");
                 }
                 return null;
             }
@@ -183,16 +211,17 @@ document.addEventListener('DOMContentLoaded', () => {
             localStorage.setItem(cacheKey, JSON.stringify(responseData));
             const now = new Date();
             localStorage.setItem(lastRetrievedKey, now.toISOString());
-             if (document.getElementById('lastRetrievedTimestamp').offsetParent !== null) { // only update if visible
+            if (document.getElementById('lastRetrievedTimestamp').offsetParent !== null) {
                 updateLastRetrievedTimestamp(now.toLocaleString());
-             }
+            }
             return responseData;
         } catch (err) {
-            console.error('Fetch Error:', err);
-            showError(`Network error or worker issue: ${err.message}. Check browser console & worker logs.`);
+            // This catch is for network errors or if response.json() fails
+            console.error('Fetch/Network Error in shortIOApiCall:', err);
+            showError(`Network error or problem processing API response: ${err.message}. Check browser console & worker logs.`);
             return null;
         } finally {
-            showLoading(false);
+            updateLoadingIndicator('end'); // Indicate a load operation has ended
         }
     }
 
@@ -279,11 +308,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     function clearApiKey() {
-        localStorage.removeItem('shortio_apiKey');
-        Object.keys(localStorage).forEach(key => { if (key.startsWith('shortio_')) localStorage.removeItem(key); });
-        currentApiKey = null; currentDomainId = null; currentDomainHostname = null; currentLinkId = null; currentLinkPath = null;
-        apiKeyInput.value = '';
-        updateLastRetrievedTimestamp('');
+        clearAllAppData(); 
     }
 
     async function loadDomains(forceRefresh = false) {
@@ -327,7 +352,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const [stats, linksResponse] = await Promise.all([
             shortIOApiCall('get-domain-stats', { domainId }, forceRefresh),
-            shortIOApiCall('list-domain-links', paramsForLinks, forceRefresh) // Use new action
+            shortIOApiCall('list-domain-links', paramsForLinks, forceRefresh) // This SHOULD be list-domain-links
         ]);
 
         console.log("linksResponse from API:", linksResponse); // DEBUG LINE
@@ -463,7 +488,32 @@ document.addEventListener('DOMContentLoaded', () => {
         if (stats.country?.length) renderBarChart('linkCountriesChart', stats.country.map(c => c.countryName || c.country), stats.country.map(c => c.score), 'Clicks', 'Countries'); else destroyChart('linkCountriesChart');
         if (stats.os?.length) renderBarChart('linkOsChart', stats.os.map(o => o.os), stats.os.map(o => o.score), 'Sessions', 'Operating Systems'); else destroyChart('linkOsChart');
     }
-    
+
+    // --- Helper function to clear all app-specific localStorage data ---
+    function clearAllAppData() {
+        Object.keys(localStorage).forEach(key => {
+            if (key.startsWith('shortio_')) {
+                localStorage.removeItem(key);
+            }
+        });
+        // Also reset in-memory state
+        currentApiKey = null;
+        currentDomainId = null;
+        currentDomainHostname = null;
+        currentLinkId = null;
+        currentLinkPath = null;
+        currentDomainLinks = [];
+        currentPageToken = null;
+        prevPageToken = null;
+        activeLoadCounter = 0; // Reset load counter if you've implemented it
+
+        apiKeyInput.value = '';
+        updateLastRetrievedTimestamp('');
+        showError(null); // Clear any errors
+        updateLoadingIndicator('end'); // Ensure loader is hidden if it was stuck
+        console.log("All app data and local storage cleared.");
+    }
+
     saveApiKeyButton.addEventListener('click', saveApiKey);
     apiKeyInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') saveApiKey(); });
     homeButton.addEventListener('click', () => switchToView('apiKey', true));
@@ -479,15 +529,29 @@ document.addEventListener('DOMContentLoaded', () => {
         else switchToView('apiKey');
     });
 
+    resetDataButton.addEventListener('click', () => { // New listener
+        if (confirm("Are you sure you want to reset all stored data (API key, cached stats)? This will require you to re-enter your API key.")) {
+            clearAllAppData();
+            switchToView('apiKey', true); // true to ensure API key view and further cleanup
+        }
+    });
+
     function init() {
         if (CLOUDFLARE_WORKER_URL.startsWith('YOUR_')) {
-             switchToView('apiKey');
+             switchToView('apiKey'); // Stay on API key view
              showError('CRITICAL: Cloudflare Worker URL is not configured in app.js.');
+             // apiKeyError.textContent = 'CRITICAL: Cloudflare Worker URL is not configured in app.js.'; // Already handled by showError
              return;
         }
-        if (loadApiKey()) loadDomains();
-        else switchToView('apiKey');
-        updateBreadcrumbs();
+
+        if (loadApiKey()) { // loadApiKey just reads from localStorage
+            loadDomains(); // Attempt to load domains if API key exists
+        } else {
+            // If no API key, ensure we are on the API key view and state is clean
+            clearAllAppData(); // Make sure everything is reset if no key found
+            switchToView('apiKey');
+        }
+        updateBreadcrumbs(); // Initial breadcrumb
     }
     init();
 });

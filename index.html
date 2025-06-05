@@ -44,13 +44,16 @@
 
         <!-- Main Content Area -->
         <div id="mainContentView" class="hidden mt-6">
-            <div class="flex justify-between items-center mb-4">
+            <div class="flex flex-wrap justify-between items-center mb-4 gap-2">
                 <div>
-                    <button id="homeButton" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline mr-2">
+                    <button id="homeButton" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline mr-2 mb-2 sm:mb-0">
                         Change API Key
                     </button>
-                    <button id="refreshDataButton" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">
+                    <button id="refreshDataButton" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline mr-2 mb-2 sm:mb-0">
                         Refresh Data
+                    </button>
+                    <button id="resetDataButton" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline mb-2 sm:mb-0">
+                        Reset All Data
                     </button>
                 </div>
                 <p id="lastRetrievedTimestamp" class="text-sm text-gray-600"></p>
