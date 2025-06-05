@@ -196,7 +196,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function showLoading(isLoading) { loadingIndicator.style.display = isLoading ? 'block' : 'none'; }
+    function showLoading(isLoading) {
+        console.log("showLoading called with:", isLoading); // DEBUG LINE
+        loadingIndicator.style.display = isLoading ? 'block' : 'none';
+    }
     
     function showError(message) {
         const targetErrorEl = currentView === 'apiKey' ? apiKeyError : globalErrorEl;
@@ -327,6 +330,8 @@ document.addEventListener('DOMContentLoaded', () => {
             shortIOApiCall('list-domain-links', paramsForLinks, forceRefresh) // Use new action
         ]);
 
+        console.log("linksResponse from API:", linksResponse); // DEBUG LINE
+
         if (stats) {
             renderDomainStats(stats);
             // The 'Total Links' from stats might be different from the actual count of all links.
@@ -360,10 +365,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (stats.os?.length) renderBarChart('domainOsChart', stats.os.map(o => o.os), stats.os.map(o => o.score), 'Sessions', 'Operating Systems'); else destroyChart('domainOsChart');
     }
 
-    function renderLinksList(links, nextPageTokenForPagination) { // Now takes the array of link objects
+    function renderLinksList(links, nextPageTokenForPagination) {
         linksListContainer.innerHTML = '';
         const paginationContainer = document.getElementById('linksPaginationContainer');
-        paginationContainer.innerHTML = ''; // Clear previous pagination
+        paginationContainer.innerHTML = '';
 
         if (!links || links.length === 0) {
             linksListContainer.innerHTML = '<p class="text-gray-600">No links found in this domain.</p>';
