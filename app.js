@@ -1,4 +1,4 @@
-// app.js v.0.4 custom date function
+// app.js v.0.5 dynamic custom date function
 document.addEventListener('DOMContentLoaded', () => {
     // Assumes your Cloudflare Function is at /shortio-api relative to your Pages site
     const CLOUDFLARE_WORKER_URL = '/shortio-api';
@@ -135,6 +135,19 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    function getPeriodDisplayName(periodValue, startDate, endDate) {
+        if (periodValue === 'custom' && startDate && endDate) {
+            // Format dates for display (e.g., "MMM D, YYYY")
+            const options = { year: 'numeric', month: 'short', day: 'numeric' };
+            const displayStart = new Date(startDate + 'T00:00:00').toLocaleDateString(undefined, options); // Add T00:00:00 to avoid timezone issues with just date
+            const displayEnd = new Date(endDate + 'T00:00:00').toLocaleDateString(undefined, options);
+            return `Custom: ${displayStart} - ${displayEnd}`;
+        }
+        // Find the text of the selected option in the dropdown
+        const selectedOption = periodSelect.querySelector(`option[value="${periodValue}"]`);
+        return selectedOption ? selectedOption.textContent : periodValue;
+    }
+
     function updateLoadingIndicator(operation) { // operation is 'start' or 'end'
         if (operation === 'start') {
             activeLoadCounter++;
@@ -166,8 +179,22 @@ document.addEventListener('DOMContentLoaded', () => {
              return null;
         }
 
-        const cacheKey = `shortio_cache_${action}_${JSON.stringify(params)}`;
-        const lastRetrievedKey = `shortio_last_retrieved_${action}_${JSON.stringify(params)}`;
+        let cacheKeyParams = { ...params }; 
+        if (action === 'get-domain-stats' || action === 'get-link-stats') {
+            cacheKeyParams.period = params.period || currentPeriod; // Ensure period is included
+            if (cacheKeyParams.period === 'custom') {
+                cacheKeyParams.startDate = params.startDate || customStartDate;
+                cacheKeyParams.endDate = params.endDate || customEndDate;
+            }
+        }
+        Object.keys(cacheKeyParams).forEach(key => {
+            if (cacheKeyParams[key] === undefined || cacheKeyParams[key] === null) {
+                delete cacheKeyParams[key];
+            }
+        });
+
+        const cacheKey = `shortio_cache_${action}_${JSON.stringify(cacheKeyParams)}`;
+        const lastRetrievedKey = `shortio_last_retrieved_${action}_${JSON.stringify(cacheKeyParams)}`;
 
         if (!forceRefresh) {
             const cachedData = localStorage.getItem(cacheKey);
@@ -178,24 +205,26 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (lastRetrieved && document.getElementById('lastRetrievedTimestamp').offsetParent !== null) {
                          updateLastRetrievedTimestamp(new Date(lastRetrieved).toLocaleString());
                     }
+                    console.log(`Cache hit for ${action} with params:`, cacheKeyParams); // Cache hit log
                     return data;
                 } catch (e) { localStorage.removeItem(cacheKey); localStorage.removeItem(lastRetrievedKey); }
             }
         }
+        console.log(`Cache miss or force refresh for ${action} with params:`, cacheKeyParams); // Cache miss log
 
-        updateLoadingIndicator('start'); // Indicate a load operation has started
-        showError(null); // Clear previous errors (global error specifically)
+        updateLoadingIndicator('start');
+        showError(null);
 
-        let queryParams = new URLSearchParams();
-        queryParams.append('action', action);
-        for (const key in params) {
+        let queryParamsForApi = new URLSearchParams();
+        queryParamsForApi.append('action', action);
+        for (const key in params) { // params already contains period, startDate, endDate if applicable
             if (params[key] !== undefined && params[key] !== null) {
-                 queryParams.append(key, params[key]);
+                 queryParamsForApi.append(key, params[key]);
             }
         }
         
         try {
-            const response = await fetch(`${CLOUDFLARE_WORKER_URL}?${queryParams.toString()}`, {
+            const response = await fetch(`${CLOUDFLARE_WORKER_URL}?${queryParamsForApi.toString()}`, {
                 method: 'GET',
                 headers: { 'X-Shortio-Api-Key': currentApiKey, 'Content-Type': 'application/json' }
             });
@@ -406,7 +435,22 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function renderDomainStats(stats, actualTotalLinks) { // Added actualTotalLinks parameter
+    function renderDomainStats(stats, actualTotalLinks) {
+        const periodDisplay = getPeriodDisplayName(currentPeriod, customStartDate, customEndDate);
+        const domainDetailViewTitleEl = document.getElementById('domainDetailView'); // Assuming this is the main container
+        const existingSubtitle = domainDetailViewTitleEl.querySelector('.domain-stats-subtitle');
+        if (existingSubtitle) {
+            existingSubtitle.textContent = `(${periodDisplay}, UTC)`;
+        } else {
+            const statsTitleH3 = domainDetailViewTitleEl.querySelector('h3'); // First h3 in domainDetailView
+             if (statsTitleH3 && statsTitleH3.textContent.includes('Domain Statistics')) {
+                // Ensure we're targeting the correct H3
+                let currentText = statsTitleH3.innerHTML;
+                // Remove old subtitle if present
+                currentText = currentText.replace(/\s*<span class="text-base font-normal text-gray-500">.*?<\/span>/, '');
+                statsTitleH3.innerHTML = `${currentText.trim()} <span class="text-base font-normal text-gray-500 domain-stats-subtitle">(${periodDisplay}, UTC)</span>`;
+            }
+        }
         domainStatsContainer.innerHTML = `
             <div class="p-3 bg-indigo-50 rounded-md"><span class="font-bold text-indigo-700">Total Clicks:</span> ${stats.clicks?.toLocaleString() || 0}</div>
             <div class="p-3 bg-purple-50 rounded-md"><span class="font-bold text-purple-700">Human Clicks:</span> ${stats.humanClicks?.toLocaleString() || 0}</div>
@@ -512,6 +556,19 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function renderLinkStats(stats) {
+        const periodDisplay = getPeriodDisplayName(currentPeriod, customStartDate, customEndDate);
+        const linkDetailViewTitleEl = document.getElementById('linkDetailView');
+        const existingSubtitle = linkDetailViewTitleEl.querySelector('.link-stats-subtitle');
+         if (existingSubtitle) {
+            existingSubtitle.textContent = `(${periodDisplay}, UTC)`;
+        } else {
+            const statsTitleH3 = linkDetailViewTitleEl.querySelector('h3'); // First h3
+            if (statsTitleH3 && statsTitleH3.textContent.includes('Link Statistics')) {
+                let currentText = statsTitleH3.innerHTML;
+                currentText = currentText.replace(/\s*<span class="text-base font-normal text-gray-500">.*?<\/span>/, '');
+                statsTitleH3.innerHTML = `${currentText.trim()} <span class="text-base font-normal text-gray-500 link-stats-subtitle">(${periodDisplay}, UTC)</span>`;
+            }
+        }
         linkStatsContainer.innerHTML = `
             <div class="p-3 bg-teal-50 rounded-md"><span class="font-bold text-teal-700">Total Clicks:</span> ${stats.totalClicks?.toLocaleString() || 0}</div>
             <div class="p-3 bg-cyan-50 rounded-md"><span class="font-bold text-cyan-700">Human Clicks:</span> ${stats.humanClicks?.toLocaleString() || 0}</div>`;

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Click Stats Tracker v0.4</title>
+    <title>Click Stats Tracker v0.5</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
@@ -29,7 +29,6 @@
 
         <!-- API Key View -->
         <div id="apiKeyView" class="mt-6 bg-white shadow-md rounded-b-lg p-6">
-            <!-- ... (API key content unchanged) ... -->
              <h2 class="text-2xl font-semibold mb-4">Enter API Key</h2>
             <p class="mb-4 text-sm text-gray-600">Your Short.io API Key (starting with 'sk_') will be stored in your browser's local storage.</p>
             <div class="mb-4">
@@ -96,7 +95,7 @@
             <div id="domainDetailView" class="hidden bg-white shadow-md rounded-lg p-6">
                 <h2 id="domainDetailTitle" class="text-2xl font-semibold mb-4">Domain Details: <span id="selectedDomainHostname"></span></h2>
                 <div class="mb-6">
-                    <h3 class="text-xl font-semibold mb-3">Domain Statistics <span class="text-base font-normal text-gray-500">(Last 30 Days, UTC)</span></h3>
+                    <h3 class="text-xl font-semibold mb-3">Domain Statistics <span class="text-base font-normal text-gray-500 domain-stats-subtitle">(Last 30 Days, UTC)</span></h3>
                     <div id="domainStatsContainer" class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4"></div>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
@@ -141,7 +140,7 @@
                     <p>Original URL: <a id="linkDetailOriginalUrl" href="#" target="_blank" class="text-blue-500 hover:underline font-mono break-all"></a></p>
                      <p>ID: <span id="linkDetailIdDisplay" class="font-mono text-gray-500"></span></p>
                 </div>
-                <h3 class="text-xl font-semibold mb-3">Link Statistics <span class="text-base font-normal text-gray-500">(Last 30 Days, UTC)</span></h3>
+                <h3 class="text-xl font-semibold mb-3">Link Statistics <span class="text-base font-normal text-gray-500 link-stats-subtitle">(Last 30 Days, UTC)</span></h3>
                 <div id="linkStatsContainer" class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4"></div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
