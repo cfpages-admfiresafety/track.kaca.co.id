@@ -1,4 +1,4 @@
-// app.js v.0.5 dynamic custom date function
+// app.js v.0.6 add client function
 document.addEventListener('DOMContentLoaded', () => {
     // Assumes your Cloudflare Function is at /shortio-api relative to your Pages site
     const CLOUDFLARE_WORKER_URL = '/shortio-api';
@@ -50,6 +50,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let customStartDate = ''; // Store custom start date
     let customEndDate = '';   // Store custom end date
 
+    let clientFilterName = null;
     let currentApiKey = null;
     let currentView = 'apiKey';
     let currentDomainId = null;
@@ -378,7 +379,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentPageToken = null;
     let prevPageToken = null; // For "Previous" button logic if needed
 
-    async function loadDomainDetails(domainId, hostname, forceRefresh = false, pageToken = null) {
+    async function loadDomainDetails(domainId, hostname, forceRefreshFromCaller = false, pageToken = null) {
         currentDomainId = domainId; currentDomainHostname = hostname;
         currentLinkId = null; currentLinkPath = null;
         switchToView('domainDetail');
@@ -398,9 +399,14 @@ document.addEventListener('DOMContentLoaded', () => {
             apiParamsForStats.endDate = customEndDate;
         }
 
+        const paramsForLinkList = { domainId };
+        if (pageToken) {
+            paramsForLinkList.pageToken = pageToken;
+        }
+
         const [stats, linksResponse] = await Promise.all([
-            shortIOApiCall('get-domain-stats', apiParamsForStats, forceRefresh),
-            shortIOApiCall('list-domain-links', paramsForLinks, forceRefresh)
+            shortIOApiCall('get-domain-stats', apiParamsForStats, forceRefreshFromCaller),
+            shortIOApiCall('list-domain-links', paramsForLinkList, pageToken ? false : forceRefreshFromCaller)
         ]);
 
         console.log("linksResponse from API:", linksResponse);
@@ -467,12 +473,23 @@ document.addEventListener('DOMContentLoaded', () => {
         const paginationContainer = document.getElementById('linksPaginationContainer');
         paginationContainer.innerHTML = '';
 
-        if (!links || links.length === 0) {
-            linksListContainer.innerHTML = '<p class="text-gray-600">No links found in this domain.</p>';
-            return;
+        let filteredLinks = links;
+        if (clientFilterName && links) {
+            console.log(`Filtering links for client: '${clientFilterName}'`);
+            filteredLinks = links.filter(link => {
+                const path = link.path || (link.shortURL ? new URL(link.shortURL).pathname : '');
+                return path.toLowerCase().includes(clientFilterName.toLowerCase());
+            });
+            console.log(`Found ${filteredLinks.length} links after filtering.`);
         }
 
-        links.forEach(link => { // link is now a full link object
+        if (!filteredLinks || filteredLinks.length === 0) {
+            let message = clientFilterName ? 
+                `No links found containing "${clientFilterName}" in their path for this domain.` :
+                'No links found in this domain.';
+            linksListContainer.innerHTML = `<p class="text-gray-600">${message}</p>`;
+        } else {
+            filteredLinks.forEach(link => { // Iterate over filteredLinks
             const linkItem = document.createElement('div');
             linkItem.className = 'bg-gray-50 p-3 rounded-md shadow-sm hover:shadow-md transition-shadow flex justify-between items-center border border-gray-200';
             
@@ -483,8 +500,8 @@ document.addEventListener('DOMContentLoaded', () => {
             linkItem.innerHTML = `
                 <div class="flex-grow mr-4 overflow-hidden">
                     <p class="font-semibold text-gray-800 truncate" title="${pathDisplay}">Path: ${pathDisplay}</p>
-                    <p class="text-sm text-blue-600 truncate" title="${originalUrlDisplay}">
-                        Original: <a href="${link.originalURL}" target="_blank" class="hover:underline">${originalUrlDisplay}</a>
+                    <p class="text-sm text-blue-600 truncate" title="${link.originalURL || 'N/A'}">
+                        Original: <a href="${link.originalURL}" target="_blank" class="hover:underline">${link.originalURL || 'N/A'}</a>
                     </p>
                     <p class="text-xs text-gray-500">ID: ${link.idString || link.id}</p>
                 </div>
@@ -494,7 +511,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 loadLinkDetails(e.target.dataset.linkid);
             });
             linksListContainer.appendChild(linkItem);
-        });
+            });
+        }
 
         // Basic "Next" pagination
         if (nextPageTokenForPagination) {
@@ -506,7 +524,6 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             paginationContainer.appendChild(nextButton);
         }
-         // TODO: Add "Previous" button if desired, would require storing previous tokens.
     }
 
     async function loadLinkDetails(linkId, forceRefresh = false) {
@@ -596,11 +613,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function applyDateFiltersAndRefresh() {
-        // This function will be called by periodSelect change (if not custom)
-        // or by applyCustomDateRangeButton
         console.log("Applying filters. Period:", currentPeriod, "Start:", customStartDate, "End:", customEndDate);
 
-        // Persist choices
         localStorage.setItem('shortio_selectedPeriod', currentPeriod);
         if (currentPeriod === 'custom') {
             localStorage.setItem('shortio_customStartDate', customStartDate);
@@ -610,11 +624,10 @@ document.addEventListener('DOMContentLoaded', () => {
             localStorage.removeItem('shortio_customEndDate');
         }
 
-        // Re-fetch data for the current view
         if (currentView === 'domainDetail' && currentDomainId) {
             ['domainClicksChart', 'domainReferrersChart', 'domainBrowsersChart', 'domainCountriesChart', 'domainOsChart'].forEach(destroyChart);
             domainStatsContainer.innerHTML = '<p>Loading new period data...</p>';
-            loadDomainDetails(currentDomainId, currentDomainHostname, true, null);
+            loadDomainDetails(currentDomainId, currentDomainHostname, false, null); // Set forceRefresh to false here
         } else if (currentView === 'linkDetail' && currentLinkId) {
             ['linkClicksChart', 'linkReferrersChart', 'linkBrowsersChart', 'linkCountriesChart', 'linkOsChart'].forEach(destroyChart);
             linkStatsContainer.innerHTML = '<p>Loading new period data...</p>';
@@ -650,14 +663,18 @@ document.addEventListener('DOMContentLoaded', () => {
     saveApiKeyButton.addEventListener('click', saveApiKey);
     apiKeyInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') saveApiKey(); });
     homeButton.addEventListener('click', () => switchToView('apiKey', true));
+
     refreshDataButton.addEventListener('click', () => {
         showError(null);
-        if (currentView === 'domains') loadDomains(true);
-        else if (currentView === 'domainDetail' && currentDomainId) {
-             // For domain detail, refresh fetches the first page of links again
-            loadDomainDetails(currentDomainId, currentDomainHostname, true, null);
+        if (currentView === 'domains') {
+            loadDomains(true);
+        } else if (currentView === 'domainDetail' && currentDomainId) {
+            // Main refresh button should force refresh everything for this view
+            loadDomainDetails(currentDomainId, currentDomainHostname, true, null); // forceRefresh = true
         }
-        else if (currentView === 'linkDetail' && currentLinkId) loadLinkDetails(currentLinkId, true);
+        else if (currentView === 'linkDetail' && currentLinkId) {
+            loadLinkDetails(currentLinkId, true); // forceRefresh = true
+        }
         else if (currentApiKey) loadDomains(true);
         else switchToView('apiKey');
     });
@@ -711,8 +728,11 @@ document.addEventListener('DOMContentLoaded', () => {
              showError('CRITICAL: Cloudflare Worker URL is not configured in app.js.');
              return;
         }
-
-        const urlParams = new URLSearchParams(window.location.search);
+        const urlParams = new URLSearchParams(window.location.search); // Already have this
+        clientFilterName = urlParams.get('client');
+        if (clientFilterName) {
+            console.log("Client filter active:", clientFilterName);
+        }
         const apiKeyFromParam = urlParams.get('apikey');
 
         if (apiKeyFromParam) {
