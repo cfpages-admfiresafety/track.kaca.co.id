@@ -1,4 +1,4 @@
-// app.js v.0.8 filter client link count function works
+// app.js v.0.9 filter client link count function works
 document.addEventListener('DOMContentLoaded', () => {
     // Assumes your Cloudflare Function is at /shortio-api relative to your Pages site
     const CLOUDFLARE_WORKER_URL = '/shortio-api';
@@ -385,14 +385,6 @@ document.addEventListener('DOMContentLoaded', () => {
         switchToView('domainDetail');
         selectedDomainHostnameEl.textContent = hostname;
 
-        const paramsForLinks = { domainId };
-        if (pageToken) {
-            paramsForLinks.pageToken = pageToken;
-        } else {
-            // Reset totalLinksInDomain when loading the first page of a domain
-            totalLinksInDomain = 0; 
-        }
-
         const apiParamsForStats = { domainId, period: currentPeriod };
         if (currentPeriod === 'custom' && customStartDate && customEndDate) {
             apiParamsForStats.startDate = customStartDate;
@@ -403,12 +395,21 @@ document.addEventListener('DOMContentLoaded', () => {
         if (pageToken) {
             paramsForLinkList.pageToken = pageToken;
         } else {
-            totalLinksInDomain = 0;
+            totalLinksInDomain = 0; 
         }
 
         if (!pageToken) { 
             totalLinksInDomain = 0; 
         }
+
+        const initialLinksCountLabelEl = document.getElementById('domainLinksCountLabel');
+        const initialLinksCountValueEl = document.getElementById('domainLinksCountValue');
+        if (clientFilterName) {
+            initialLinksCountLabelEl.textContent = `Links for "${capitalizeFirstLetter(clientFilterName)}":`;
+        } else {
+            initialLinksCountLabelEl.textContent = "Total Links in Domain:";
+        }
+        initialLinksCountValueEl.textContent = "Loading...";
 
         const [stats, linksResponse] = await Promise.all([
             shortIOApiCall('get-domain-stats', apiParamsForStats, forceRefreshFromCaller),
@@ -416,6 +417,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ]);
 
         console.log("linksResponse from API:", linksResponse);
+
         let displayedLinksCountForStatsCard;
         
         if (linksResponse && linksResponse.links) {
@@ -423,36 +425,26 @@ document.addEventListener('DOMContentLoaded', () => {
             currentDomainLinks = linksResponse.links; 
             currentPageToken = linksResponse.nextPageToken || null;
             
-            if (!pageToken) { // Only set/update total domain link count on first page load
+            if (!pageToken) { 
                 totalLinksInDomain = linksResponse.count || 0;
             }
-
-            // For the stats card:
-            if (clientFilterName) {
-                // If filtering, we cannot reliably show a "total filtered links" count
-                // without fetching all pages. So, we indicate it's a filtered list.
-                // The actual list below will be filtered.
-                displayedLinksCountForStatsCard = "Filtered List"; 
-            } else {
-                displayedLinksCountForStatsCard = totalLinksInDomain; // Show actual total
-            }
-            
             renderLinksList(currentDomainLinks, linksResponse.nextPageToken, totalLinksInDomain);
         } else {
             console.error("linksResponse was not as expected or links array is missing/empty", linksResponse);
             linksListContainer.innerHTML = '<p class="text-gray-600">No links found in this domain or failed to load them.</p>';
             document.getElementById('linksPaginationContainer').innerHTML = '';
             if (!pageToken) totalLinksInDomain = 0;
-            document.getElementById('domainLinksCountLabel').textContent = clientFilterName ? `Links for "${capitalizeFirstLetter(clientFilterName)}":` : "Total Links in Domain:";
+            
+            // If links fail to load, update the links count card value to 0. Label already set.
             document.getElementById('domainLinksCountValue').textContent = "0";
         }
         
-        // Render domain stats AFTER we have the totalLinksInDomain from linksResponse (if first page)
-        // or ensure stats are rendered even if linksResponse is slower.
+        // Render domain stats (clicks, human clicks, charts).
+        // This will also set the period subtitle.
         if (stats) {
              renderDomainStats(stats); 
-        } else { // If stats API failed, still clear charts and show 0 for those stats
-             renderDomainStats({}); // Pass empty object to show 0s and clear charts
+        } else { 
+             renderDomainStats({}); 
         }
     }
 
@@ -483,16 +475,15 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        let linksCountLabel = "Total Links in Domain:";
-        let linksCountValue = typeof linksCountToDisplay === 'number' ? linksCountToDisplay.toLocaleString() : linksCountToDisplay;
+        const linksCountLabelEl = document.getElementById('domainLinksCountLabel');
+        const linksCountValueEl = document.getElementById('domainLinksCountValue');
 
         if (clientFilterName) {
-            linksCountLabel = `Links for "${clientFilterName}":`;
-            // linksCountValue is already "Filtered List" or the count of total if we decide to show that
-            // If we want to show count of visible items on current page:
-            // This would require renderLinksList to give back that number, or re-filter here.
-            // For now, "Filtered List" is a clear indicator.
+            linksCountLabelEl.textContent = `Links for "${capitalizeFirstLetter(clientFilterName)}":`;
+        } else {
+            linksCountLabelEl.textContent = "Total Links in Domain:";
         }
+        linksCountValueEl.textContent = "Loading...";
         domainStatsContainer.innerHTML = `
             <div class="p-3 bg-indigo-50 rounded-md"><span class="font-bold text-indigo-700">Total Clicks:</span> ${stats.clicks?.toLocaleString() || 0}</div>
             <div class="p-3 bg-purple-50 rounded-md"><span class="font-bold text-purple-700">Human Clicks:</span> ${stats.humanClicks?.toLocaleString() || 0}</div>
