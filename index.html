@@ -95,8 +95,15 @@
             <div id="domainDetailView" class="hidden bg-white shadow-md rounded-lg p-6">
                 <h2 id="domainDetailTitle" class="text-2xl font-semibold mb-4">Domain Details: <span id="selectedDomainHostname"></span></h2>
                 <div class="mb-6">
-                    <h3 class="text-xl font-semibold mb-3">Domain Statistics <span class="text-base font-normal text-gray-500 domain-stats-subtitle">(Last 30 Days, UTC)</span></h3>
-                    <div id="domainStatsContainer" class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4"></div>
+                    <h3 class="text-xl font-semibold mb-3">Domain Statistics <span class="text-base font-normal text-gray-500 domain-stats-subtitle">(Total, UTC)</span></h3>
+                    <div id="domainStatsContainer" class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
+                        <div class="p-3 bg-indigo-50 rounded-md"><span class="font-bold text-indigo-700">Total Clicks:</span> <span id="domainTotalClicks">0</span></div>
+                        <div class="p-3 bg-purple-50 rounded-md"><span class="font-bold text-purple-700">Human Clicks:</span> <span id="domainHumanClicks">0</span></div>
+                        <div id="domainLinksCountCard" class="p-3 bg-pink-50 rounded-md">
+                            <span class="font-bold text-pink-700" id="domainLinksCountLabel">Total Links in Domain:</span>
+                            <span id="domainLinksCountValue">0</span>
+                        </div>
+                    </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
                             <h4 class="text-lg font-medium mb-2">Clicks Over Time</h4>

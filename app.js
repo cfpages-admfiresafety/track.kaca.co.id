@@ -1,4 +1,4 @@
-// app.js v.0.7 filter client link count function
+// app.js v.0.8 filter client link count function works
 document.addEventListener('DOMContentLoaded', () => {
     // Assumes your Cloudflare Function is at /shortio-api relative to your Pages site
     const CLOUDFLARE_WORKER_URL = '/shortio-api';
@@ -403,8 +403,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (pageToken) {
             paramsForLinkList.pageToken = pageToken;
         } else {
-            // Reset totalLinksInDomain when loading the first page of a domain
-            totalLinksInDomain = 0; 
+            totalLinksInDomain = 0;
         }
 
         if (!pageToken) { 
@@ -424,7 +423,7 @@ document.addEventListener('DOMContentLoaded', () => {
             currentDomainLinks = linksResponse.links; 
             currentPageToken = linksResponse.nextPageToken || null;
             
-            if (!pageToken) { // Only set/update total count on first page load of a domain/filter
+            if (!pageToken) { // Only set/update total domain link count on first page load
                 totalLinksInDomain = linksResponse.count || 0;
             }
 
@@ -438,29 +437,38 @@ document.addEventListener('DOMContentLoaded', () => {
                 displayedLinksCountForStatsCard = totalLinksInDomain; // Show actual total
             }
             
-            renderLinksList(currentDomainLinks, linksResponse.nextPageToken);
+            renderLinksList(currentDomainLinks, linksResponse.nextPageToken, totalLinksInDomain);
         } else {
             console.error("linksResponse was not as expected or links array is missing/empty", linksResponse);
             linksListContainer.innerHTML = '<p class="text-gray-600">No links found in this domain or failed to load them.</p>';
             document.getElementById('linksPaginationContainer').innerHTML = '';
-            if (!pageToken) {
-                totalLinksInDomain = 0;
-            }
-            displayedLinksCountForStatsCard = clientFilterName ? "Filtered List" : 0;
+            if (!pageToken) totalLinksInDomain = 0;
+            document.getElementById('domainLinksCountLabel').textContent = clientFilterName ? `Links for "${capitalizeFirstLetter(clientFilterName)}":` : "Total Links in Domain:";
+            document.getElementById('domainLinksCountValue').textContent = "0";
         }
         
         // Render domain stats AFTER we have the totalLinksInDomain from linksResponse (if first page)
         // or ensure stats are rendered even if linksResponse is slower.
         if (stats) {
-             renderDomainStats(stats, displayedLinksCountForStatsCard); // Pass the determined count/label
-        } else if (typeof displayedLinksCountForStatsCard !== 'undefined' && !stats) { // If stats failed but we have some idea for link count
-             renderDomainStats({}, displayedLinksCountForStatsCard);
+             renderDomainStats(stats); 
+        } else { // If stats API failed, still clear charts and show 0 for those stats
+             renderDomainStats({}); // Pass empty object to show 0s and clear charts
         }
     }
 
-    function renderDomainStats(stats, linksCountToDisplay) {
+    function renderDomainStats(stats) {
         const periodDisplay = getPeriodDisplayName(currentPeriod, customStartDate, customEndDate);
-        const domainDetailViewTitleEl = document.getElementById('domainDetailView'); // Assuming this is the main container
+        const domainDetailViewTitleEl = document.getElementById('domainDetailView');
+        const subtitleEl = domainDetailViewTitleEl.querySelector('.domain-stats-subtitle');
+        if (subtitleEl) {
+            subtitleEl.textContent = `(${periodDisplay}, UTC)`;
+        }
+
+        document.getElementById('domainTotalClicks').textContent = stats.clicks?.toLocaleString() || 0;
+        document.getElementById('domainHumanClicks').textContent = stats.humanClicks?.toLocaleString() || 0;
+        document.getElementById('domainLinksCountLabel').textContent = "Total Links in Domain:";
+        document.getElementById('domainLinksCountValue').textContent = "Loading...";
+
         const existingSubtitle = domainDetailViewTitleEl.querySelector('.domain-stats-subtitle');
         if (existingSubtitle) {
             existingSubtitle.textContent = `(${periodDisplay}, UTC)`;
@@ -496,49 +504,73 @@ document.addEventListener('DOMContentLoaded', () => {
         if (stats.os?.length) renderBarChart('domainOsChart', stats.os.map(o => o.os), stats.os.map(o => o.score), 'Sessions', 'Operating Systems'); else destroyChart('domainOsChart');
     }
 
-    function renderLinksList(links, nextPageTokenForPagination) {
+    function renderLinksList(links, nextPageTokenForPagination, actualTotalLinksInDomain) {
         linksListContainer.innerHTML = '';
         const paginationContainer = document.getElementById('linksPaginationContainer');
         paginationContainer.innerHTML = '';
+        const linksCountLabelEl = document.getElementById('domainLinksCountLabel');
+        const linksCountValueEl = document.getElementById('domainLinksCountValue');
 
         let filteredLinks = links;
+        let displayedCount = 0;
+
         if (clientFilterName && links) {
             console.log(`Filtering links for client: '${clientFilterName}'`);
             filteredLinks = links.filter(link => {
                 const path = link.path || (link.shortURL ? new URL(link.shortURL).pathname : '');
                 return path.toLowerCase().includes(clientFilterName.toLowerCase());
             });
-            console.log(`Found ${filteredLinks.length} links after filtering.`);
+            console.log(`Found ${filteredLinks.length} links after filtering on this page.`);
+            displayedCount = filteredLinks.length;
+            linksCountLabelEl.textContent = `Links for "${capitalizeFirstLetter(clientFilterName)}":`;
+            // The count here is for the *current page*.
+            // We could add " (on this page)" if nextPageTokenForPagination exists,
+            // or if displayedCount < actualTotalLinksInDomain (though actualTotal is for non-filtered).
+            // For simplicity, just show the count of items visible.
+            linksCountValueEl.textContent = displayedCount.toLocaleString();
+        } else {
+            // No client filter, show total links for the domain
+            displayedCount = actualTotalLinksInDomain; // Use the total count passed in
+            linksCountLabelEl.textContent = "Total Links in Domain:";
+            linksCountValueEl.textContent = displayedCount.toLocaleString();
+            // filteredLinks is still the same as links here
         }
 
-        if (!filteredLinks || filteredLinks.length === 0) {
-            let message = clientFilterName ? 
-                `No links found containing "${clientFilterName}" in their path for this domain.` :
-                'No links found in this domain.';
-            linksListContainer.innerHTML = `<p class="text-gray-600">${message}</p>`;
-        } else {
-            filteredLinks.forEach(link => { // Iterate over filteredLinks
-            const linkItem = document.createElement('div');
-            linkItem.className = 'bg-gray-50 p-3 rounded-md shadow-sm hover:shadow-md transition-shadow flex justify-between items-center border border-gray-200';
-            
-            // Display link path and original URL
-            const pathDisplay = link.path ? `/${link.path}` : (link.shortURL ? new URL(link.shortURL).pathname : 'N/A');
-            const originalUrlDisplay = link.originalURL || 'N/A';
+        if (!filteredLinks || filteredLinks.length === 0) { // Check the list that will be rendered
+            let message = "";
+            if (clientFilterName) {
+                message = `No links found containing "${capitalizeFirstLetter(clientFilterName)}" in their path on this page.`;
+            } else {
+                 message = (links && links.length > 0) ? "No links match the current filter on this page." : "No links found in this domain.";
+            }
+            if (actualTotalLinksInDomain === 0 && !clientFilterName){ // If really no links in domain
+                message = "No links found in this domain.";
+            }
 
-            linkItem.innerHTML = `
-                <div class="flex-grow mr-4 overflow-hidden">
-                    <p class="font-semibold text-gray-800 truncate" title="${pathDisplay}">Path: ${pathDisplay}</p>
-                    <p class="text-sm text-blue-600 truncate" title="${link.originalURL || 'N/A'}">
-                        Original: <a href="${link.originalURL}" target="_blank" class="hover:underline">${link.originalURL || 'N/A'}</a>
-                    </p>
-                    <p class="text-xs text-gray-500">ID: ${link.idString || link.id}</p>
-                </div>
-                <button data-linkid="${link.idString || link.id}" class="text-sm bg-blue-500 hover:bg-blue-600 text-white py-1 px-3 rounded whitespace-nowrap">View Stats</button>
-            `;
-            linkItem.querySelector('button').addEventListener('click', (e) => {
-                loadLinkDetails(e.target.dataset.linkid);
-            });
-            linksListContainer.appendChild(linkItem);
+            linksListContainer.innerHTML = `<p class="text-gray-600">${message}</p>`;
+            // If no filtered links are shown, but there's a next page, still show pagination
+            // as the next page *might* have matches.
+        } else {
+            filteredLinks.forEach(link => {
+                const linkItem = document.createElement('div');
+                linkItem.className = 'bg-gray-50 p-3 rounded-md shadow-sm hover:shadow-md transition-shadow flex justify-between items-center border border-gray-200';
+                const pathDisplay = link.path ? `/${link.path}` : (link.shortURL ? new URL(link.shortURL).pathname : 'N/A');
+                const originalUrlDisplay = link.originalURL || 'N/A';
+
+                linkItem.innerHTML = `
+                    <div class="flex-grow mr-4 overflow-hidden">
+                        <p class="font-semibold text-gray-800 truncate" title="${pathDisplay}">Path: ${pathDisplay}</p>
+                        <p class="text-sm text-blue-600 truncate" title="${originalUrlDisplay}">
+                            Original: <a href="${originalUrlDisplay}" target="_blank" class="hover:underline">${originalUrlDisplay}</a>
+                        </p>
+                        <p class="text-xs text-gray-500">ID: ${link.idString || link.id}</p>
+                    </div>
+                    <button data-linkid="${link.idString || link.id}" class="text-sm bg-blue-500 hover:bg-blue-600 text-white py-1 px-3 rounded whitespace-nowrap">View Stats</button>
+                `;
+                linkItem.querySelector('button').addEventListener('click', (e) => {
+                    loadLinkDetails(e.target.dataset.linkid);
+                });
+                linksListContainer.appendChild(linkItem);
             });
         }
 
@@ -548,10 +580,15 @@ document.addEventListener('DOMContentLoaded', () => {
             nextButton.textContent = 'Next Page';
             nextButton.className = 'bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline';
             nextButton.addEventListener('click', () => {
-                loadDomainDetails(currentDomainId, currentDomainHostname, true, nextPageTokenForPagination); // forceRefresh true to get new page
+                loadDomainDetails(currentDomainId, currentDomainHostname, false, nextPageTokenForPagination);
             });
             paginationContainer.appendChild(nextButton);
         }
+    }
+
+    function capitalizeFirstLetter(string) {
+        if (!string) return '';
+        return string.charAt(0).toUpperCase() + string.slice(1).toLowerCase();
     }
 
     async function loadLinkDetails(linkId, forceRefresh = false) {
