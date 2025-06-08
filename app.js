@@ -1,4 +1,4 @@
-// app.js v.0.9 filter client link count function works
+// app.js v.1.0 filter client link count function works
 document.addEventListener('DOMContentLoaded', () => {
     // Assumes your Cloudflare Function is at /shortio-api relative to your Pages site
     const CLOUDFLARE_WORKER_URL = '/shortio-api';
@@ -138,13 +138,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function getPeriodDisplayName(periodValue, startDate, endDate) {
         if (periodValue === 'custom' && startDate && endDate) {
-            // Format dates for display (e.g., "MMM D, YYYY")
             const options = { year: 'numeric', month: 'short', day: 'numeric' };
-            const displayStart = new Date(startDate + 'T00:00:00').toLocaleDateString(undefined, options); // Add T00:00:00 to avoid timezone issues with just date
+            const displayStart = new Date(startDate + 'T00:00:00').toLocaleDateString(undefined, options);
             const displayEnd = new Date(endDate + 'T00:00:00').toLocaleDateString(undefined, options);
             return `Custom: ${displayStart} - ${displayEnd}`;
         }
-        // Find the text of the selected option in the dropdown
         const selectedOption = periodSelect.querySelector(`option[value="${periodValue}"]`);
         return selectedOption ? selectedOption.textContent : periodValue;
     }
@@ -385,6 +383,15 @@ document.addEventListener('DOMContentLoaded', () => {
         switchToView('domainDetail');
         selectedDomainHostname.textContent = hostname;
 
+        // Set initial "Loading..." states for elements updated by different functions
+        document.getElementById('domainTotalClicks').textContent = "Loading...";
+        document.getElementById('domainHumanClicks').textContent = "Loading...";
+        document.getElementById('domainLinksCountLabel').textContent = clientFilterName ? `Links for "${capitalizeFirstLetter(clientFilterName)}":` : "Total Links in Domain:";
+        document.getElementById('domainLinksCountValue').textContent = "Loading...";
+        // Clear charts before new data to avoid showing old data during load
+        ['domainClicksChart', 'domainReferrersChart', 'domainBrowsersChart', 'domainCountriesChart', 'domainOsChart'].forEach(destroyChart);
+
+
         const apiParamsForStats = { domainId, period: currentPeriod };
         if (currentPeriod === 'custom' && customStartDate && customEndDate) {
             apiParamsForStats.startDate = customStartDate;
@@ -395,99 +402,71 @@ document.addEventListener('DOMContentLoaded', () => {
         if (pageToken) {
             paramsForLinkList.pageToken = pageToken;
         } else {
-            totalLinksInDomain = 0; 
+            totalLinksInDomain = 0; // Reset the overall domain link count for new domain/first page
         }
 
-        if (!pageToken) { 
-            totalLinksInDomain = 0; 
-        }
-
-        const initialLinksCountLabel = document.getElementById('domainLinksCountLabel');
-        const initialLinksCountValue = document.getElementById('domainLinksCountValue');
-        if (clientFilterName) {
-            initialLinksCountLabel.textContent = `Links for "${capitalizeFirstLetter(clientFilterName)}":`;
-        } else {
-            initialLinksCountLabel.textContent = "Total Links in Domain:";
-        }
-        initialLinksCountValue.textContent = "Loading...";
-
-        const [stats, linksResponse] = await Promise.all([
+        // Fetch in parallel
+        const [statsResponseData, linksApiResponseData] = await Promise.all([
             shortIOApiCall('get-domain-stats', apiParamsForStats, forceRefreshFromCaller),
             shortIOApiCall('list-domain-links', paramsForLinkList, pageToken ? false : forceRefreshFromCaller)
         ]);
 
-        console.log("linksResponse from API:", linksResponse);
-
-        let displayedLinksCountForStatsCard;
-        
-        if (linksResponse && linksResponse.links) {
-            console.log("Actual links array:", linksResponse.links);
-            currentDomainLinks = linksResponse.links; 
-            currentPageToken = linksResponse.nextPageToken || null;
-            
-            if (!pageToken) { 
-                totalLinksInDomain = linksResponse.count || 0;
-            }
-            renderLinksList(currentDomainLinks, linksResponse.nextPageToken, totalLinksInDomain);
+        // Process stats response
+        if (statsResponseData) {
+            renderDomainStats(statsResponseData);
         } else {
-            console.error("linksResponse was not as expected or links array is missing/empty", linksResponse);
+            renderDomainStats({}); // Pass empty object to show 0s and clear charts if API failed
+        }
+
+        // Process links list response
+        console.log("linksResponse from API:", linksApiResponseData);
+        if (linksApiResponseData && linksApiResponseData.links) {
+            console.log("Actual links array:", linksApiResponseData.links);
+            currentDomainLinks = linksApiResponseData.links;
+            currentPageToken = linksApiResponseData.nextPageToken || null;
+
+            if (!pageToken) { // Only set/update total domain link count on first page load
+                totalLinksInDomain = linksApiResponseData.count || 0;
+            }
+            renderLinksList(currentDomainLinks, linksApiResponseData.nextPageToken, totalLinksInDomain);
+        } else {
+            console.error("linksResponse was not as expected or links array is missing/empty", linksApiResponseData);
             linksListContainer.innerHTML = '<p class="text-gray-600">No links found in this domain or failed to load them.</p>';
             document.getElementById('linksPaginationContainer').innerHTML = '';
             if (!pageToken) totalLinksInDomain = 0;
-            
-            // If links fail to load, update the links count card value to 0. Label already set.
+            // Update the specific links count card if links fail to load
+            document.getElementById('domainLinksCountLabel').textContent = clientFilterName ? `Links for "${capitalizeFirstLetter(clientFilterName)}":` : "Total Links in Domain:";
             document.getElementById('domainLinksCountValue').textContent = "0";
-        }
-        
-        // Render domain stats (clicks, human clicks, charts).
-        // This will also set the period subtitle.
-        if (stats) {
-             renderDomainStats(stats); 
-        } else { 
-             renderDomainStats({}); 
         }
     }
 
     function renderDomainStats(stats) {
         const periodDisplay = getPeriodDisplayName(currentPeriod, customStartDate, customEndDate);
-        const domainDetailViewTitleEl = document.getElementById('domainDetailView');
-        const subtitleEl = domainDetailViewTitleEl.querySelector('.domain-stats-subtitle');
-        if (subtitleEl) {
-            subtitleEl.textContent = `(${periodDisplay}, UTC)`;
-        }
-
-        document.getElementById('domainTotalClicks').textContent = stats.clicks?.toLocaleString() || 0;
-        document.getElementById('domainHumanClicks').textContent = stats.humanClicks?.toLocaleString() || 0;
-        document.getElementById('domainLinksCountLabel').textContent = "Total Links in Domain:";
-        document.getElementById('domainLinksCountValue').textContent = "Loading...";
-
-        const existingSubtitle = domainDetailViewTitleEl.querySelector('.domain-stats-subtitle');
-        if (existingSubtitle) {
-            existingSubtitle.textContent = `(${periodDisplay}, UTC)`;
-        } else {
-            const statsTitleH3 = domainDetailViewTitleEl.querySelector('h3'); // First h3 in domainDetailView
-             if (statsTitleH3 && statsTitleH3.textContent.includes('Domain Statistics')) {
-                // Ensure we're targeting the correct H3
-                let currentText = statsTitleH3.innerHTML;
-                // Remove old subtitle if present
-                currentText = currentText.replace(/\s*<span class="text-base font-normal text-gray-500">.*?<\/span>/, '');
-                statsTitleH3.innerHTML = `${currentText.trim()} <span class="text-base font-normal text-gray-500 domain-stats-subtitle">(${periodDisplay}, UTC)</span>`;
+        const domainDetailView = document.getElementById('domainDetailView'); // Get the parent view
+        
+        // Update the subtitle in the H3 for "Domain Statistics"
+        const statsTitleH3 = domainDetailView.querySelector('h3:first-of-type'); // More specific selector
+        if (statsTitleH3 && statsTitleH3.textContent.includes('Domain Statistics')) {
+            let subtitleSpan = statsTitleH3.querySelector('.domain-stats-subtitle');
+            if (!subtitleSpan) { // If span doesn't exist, create and append it
+                // Get base text without potential old (non-spanned) subtitle
+                let baseH3Text = "Domain Statistics"; 
+                const textNode = Array.from(statsTitleH3.childNodes).find(node => node.nodeType === Node.TEXT_NODE && node.textContent.includes("Domain Statistics"));
+                if (textNode) baseH3Text = textNode.textContent.trim();
+                
+                statsTitleH3.textContent = baseH3Text + ' '; // Add space before new span
+                subtitleSpan = document.createElement('span');
+                subtitleSpan.className = 'text-base font-normal text-gray-500 domain-stats-subtitle';
+                statsTitleH3.appendChild(subtitleSpan);
             }
+            subtitleSpan.textContent = `(${periodDisplay}, UTC)`;
         }
 
-        const linksCountLabel = document.getElementById('domainLinksCountLabel');
-        const linksCountValue = document.getElementById('domainLinksCountValue');
+        // Update click stats directly in their spans
+        document.getElementById('domainTotalClicks').textContent = stats.clicks?.toLocaleString() || '0';
+        document.getElementById('domainHumanClicks').textContent = stats.humanClicks?.toLocaleString() || '0';
 
-        if (clientFilterName) {
-            linksCountLabel.textContent = `Links for "${capitalizeFirstLetter(clientFilterName)}":`;
-        } else {
-            linksCountLabel.textContent = "Total Links in Domain:";
-        }
-        linksCountValue.textContent = "Loading...";
-        domainStatsContainer.innerHTML = `
-            <div class="p-3 bg-indigo-50 rounded-md"><span class="font-bold text-indigo-700">Total Clicks:</span> ${stats.clicks?.toLocaleString() || 0}</div>
-            <div class="p-3 bg-purple-50 rounded-md"><span class="font-bold text-purple-700">Human Clicks:</span> ${stats.humanClicks?.toLocaleString() || 0}</div>
-            <div class="p-3 bg-pink-50 rounded-md"><span class="font-bold text-pink-700">${linksCountLabel}</span> ${linksCountValue}</div>`;
+        // Chart rendering - this part remains the same
         if (stats.clickStatistics?.datasets?.[0]?.data?.length) renderLineChart('domainClicksChart', 'Clicks', stats.clickStatistics.datasets[0].data); else destroyChart('domainClicksChart');
         if (stats.referer?.length) renderBarChart('domainReferrersChart', stats.referer.map(r => r.referer || 'Direct'), stats.referer.map(r => r.score), 'Clicks', 'Referrers'); else destroyChart('domainReferrersChart');
         if (stats.browser?.length) renderBarChart('domainBrowsersChart', stats.browser.map(b => b.browser), stats.browser.map(b => b.score), 'Sessions', 'Browsers'); else destroyChart('domainBrowsersChart');
@@ -496,51 +475,49 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function renderLinksList(links, nextPageTokenForPagination, actualTotalLinksInDomain) {
-        linksListContainer.innerHTML = '';
+        linksListContainer.innerHTML = ''; // Clear only the link items
         const paginationContainer = document.getElementById('linksPaginationContainer');
-        paginationContainer.innerHTML = '';
-        const linksCountLabel = document.getElementById('domainLinksCountLabel');
-        const linksCountValue = document.getElementById('domainLinksCountValue');
+        paginationContainer.innerHTML = ''; // Clear only pagination
+
+        // Get elements for the link count card
+        const linksCountLabelEl = document.getElementById('domainLinksCountLabel');
+        const linksCountValueEl = document.getElementById('domainLinksCountValue');
 
         let filteredLinks = links;
-        let displayedCount = 0;
+        let displayedItemCountOnPage = 0; // Count of items actually rendered on this page after filter
 
         if (clientFilterName && links) {
-            console.log(`Filtering links for client: '${clientFilterName}'`);
+            // console.log(`Filtering links for client: '${clientFilterName}'`);
             filteredLinks = links.filter(link => {
                 const path = link.path || (link.shortURL ? new URL(link.shortURL).pathname : '');
                 return path.toLowerCase().includes(clientFilterName.toLowerCase());
             });
-            console.log(`Found ${filteredLinks.length} links after filtering on this page.`);
-            displayedCount = filteredLinks.length;
-            linksCountLabel.textContent = `Links for "${capitalizeFirstLetter(clientFilterName)}":`;
-            // The count here is for the *current page*.
-            // We could add " (on this page)" if nextPageTokenForPagination exists,
-            // or if displayedCount < actualTotalLinksInDomain (though actualTotal is for non-filtered).
-            // For simplicity, just show the count of items visible.
-            linksCountValue.textContent = displayedCount.toLocaleString();
+            // console.log(`Found ${filteredLinks.length} links after filtering on this page.`);
+            displayedItemCountOnPage = filteredLinks.length;
+            linksCountLabelEl.textContent = `Links for "${capitalizeFirstLetter(clientFilterName)}":`;
+            linksCountValueEl.textContent = displayedItemCountOnPage.toLocaleString(); // Count of filtered items on THIS page
         } else {
-            // No client filter, show total links for the domain
-            displayedCount = actualTotalLinksInDomain; // Use the total count passed in
-            linksCountLabel.textContent = "Total Links in Domain:";
-            linksCountValue.textContent = displayedCount.toLocaleString();
-            // filteredLinks is still the same as links here
+            // No client filter
+            displayedItemCountOnPage = links ? links.length : 0; // Count of items on THIS page (unfiltered)
+            linksCountLabelEl.textContent = "Total Links in Domain:";
+            linksCountValueEl.textContent = actualTotalLinksInDomain.toLocaleString(); // Show TOTAL for domain
+            // filteredLinks is the same as links here
         }
 
-        if (!filteredLinks || filteredLinks.length === 0) { // Check the list that will be rendered
+        if (!filteredLinks || filteredLinks.length === 0) {
             let message = "";
             if (clientFilterName) {
                 message = `No links found containing "${capitalizeFirstLetter(clientFilterName)}" in their path on this page.`;
             } else {
-                 message = (links && links.length > 0) ? "No links match the current filter on this page." : "No links found in this domain.";
+                message = (actualTotalLinksInDomain > 0 && links && links.length === 0 && nextPageTokenForPagination) ?
+                          "No more links on subsequent pages." : // Edge case: empty current page but total > 0 means we are on a later page
+                          (actualTotalLinksInDomain > 0) ? "No links on this page." : // Should ideally not happen if actualTotal > 0 and no filter
+                          "No links found in this domain.";
             }
-            if (actualTotalLinksInDomain === 0 && !clientFilterName){ // If really no links in domain
+            if (actualTotalLinksInDomain === 0 && !clientFilterName) {
                 message = "No links found in this domain.";
             }
-
             linksListContainer.innerHTML = `<p class="text-gray-600">${message}</p>`;
-            // If no filtered links are shown, but there's a next page, still show pagination
-            // as the next page *might* have matches.
         } else {
             filteredLinks.forEach(link => {
                 const linkItem = document.createElement('div');
@@ -565,7 +542,6 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        // Basic "Next" pagination
         if (nextPageTokenForPagination) {
             const nextButton = document.createElement('button');
             nextButton.textContent = 'Next Page';
@@ -630,17 +606,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderLinkStats(stats) {
         const periodDisplay = getPeriodDisplayName(currentPeriod, customStartDate, customEndDate);
-        const linkDetailViewTitleEl = document.getElementById('linkDetailView');
-        const existingSubtitle = linkDetailViewTitleEl.querySelector('.link-stats-subtitle');
-         if (existingSubtitle) {
-            existingSubtitle.textContent = `(${periodDisplay}, UTC)`;
-        } else {
-            const statsTitleH3 = linkDetailViewTitleEl.querySelector('h3'); // First h3
-            if (statsTitleH3 && statsTitleH3.textContent.includes('Link Statistics')) {
-                let currentText = statsTitleH3.innerHTML;
-                currentText = currentText.replace(/\s*<span class="text-base font-normal text-gray-500">.*?<\/span>/, '');
-                statsTitleH3.innerHTML = `${currentText.trim()} <span class="text-base font-normal text-gray-500 link-stats-subtitle">(${periodDisplay}, UTC)</span>`;
+        const linkDetailView = document.getElementById('linkDetailView');
+        
+        const statsTitleH3 = linkDetailView.querySelector('h3:first-of-type'); // More specific selector
+        if (statsTitleH3 && statsTitleH3.textContent.includes('Link Statistics')) {
+            let subtitleSpan = statsTitleH3.querySelector('.link-stats-subtitle');
+            if (!subtitleSpan) {
+                let baseH3Text = "Link Statistics"; 
+                const textNode = Array.from(statsTitleH3.childNodes).find(node => node.nodeType === Node.TEXT_NODE && node.textContent.includes("Link Statistics"));
+                if (textNode) baseH3Text = textNode.textContent.trim();
+
+                statsTitleH3.textContent = baseH3Text + ' ';
+                subtitleSpan = document.createElement('span');
+                subtitleSpan.className = 'text-base font-normal text-gray-500 link-stats-subtitle';
+                statsTitleH3.appendChild(subtitleSpan);
             }
+            subtitleSpan.textContent = `(${periodDisplay}, UTC)`;
         }
         linkStatsContainer.innerHTML = `
             <div class="p-3 bg-teal-50 rounded-md"><span class="font-bold text-teal-700">Total Clicks:</span> ${stats.totalClicks?.toLocaleString() || 0}</div>
