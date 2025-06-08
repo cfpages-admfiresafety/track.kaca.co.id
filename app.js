@@ -18,24 +18,24 @@ document.addEventListener('DOMContentLoaded', () => {
     // Main Content Elements
     const homeButton = document.getElementById('homeButton');
     const refreshDataButton = document.getElementById('refreshDataButton');
-    const lastRetrievedTimestampEl = document.getElementById('lastRetrievedTimestamp');
+    const lastRetrievedTimestamp = document.getElementById('lastRetrievedTimestamp');
     const loadingIndicator = document.getElementById('loadingIndicator');
-    const globalErrorEl = document.getElementById('globalError');
-    const breadcrumbsEl = document.getElementById('breadcrumbs');
+    const globalError = document.getElementById('globalError');
+    const breadCrumbs = document.getElementById('breadcrumbs');
 
     // Domains View Elements
     const domainsListContainer = document.getElementById('domainsListContainer');
     
     // Domain Detail View Elements
-    const selectedDomainHostnameEl = document.getElementById('selectedDomainHostname');
+    const selectedDomainHostname = document.getElementById('selectedDomainHostname');
     const domainStatsContainer = document.getElementById('domainStatsContainer');
     const linksListContainer = document.getElementById('linksListContainer');
 
     // Link Detail View Elements
-    const selectedLinkPathDisplayEl = document.getElementById('selectedLinkPathDisplay');
-    const linkDetailShortUrlEl = document.getElementById('linkDetailShortUrl');
-    const linkDetailOriginalUrlEl = document.getElementById('linkDetailOriginalUrl');
-    const linkDetailIdDisplayEl = document.getElementById('linkDetailIdDisplay');
+    const selectedLinkPathDisplay = document.getElementById('selectedLinkPathDisplay');
+    const linkDetailShortUrl = document.getElementById('linkDetailShortUrl');
+    const linkDetailOriginalUrl = document.getElementById('linkDetailOriginalUrl');
+    const linkDetailIdDisplay = document.getElementById('linkDetailIdDisplay');
     const linkStatsContainer = document.getElementById('linkStatsContainer');
     const resetDataButton = document.getElementById('resetDataButton');
 
@@ -273,19 +273,19 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     function showError(message) {
-        const targetErrorEl = currentView === 'apiKey' ? apiKeyError : globalErrorEl;
+        const targetErrorEl = currentView === 'apiKey' ? apiKeyError : globalError;
         if (message) {
             targetErrorEl.textContent = message;
             targetErrorEl.style.display = 'block';
-            if (targetErrorEl === globalErrorEl && apiKeyError) apiKeyError.style.display = 'none'; // hide specific if global shown
+            if (targetErrorEl === globalError && apiKeyError) apiKeyError.style.display = 'none'; // hide specific if global shown
         } else {
-            globalErrorEl.textContent = ''; globalErrorEl.style.display = 'none';
+            globalError.textContent = ''; globalError.style.display = 'none';
             if (apiKeyError) { apiKeyError.textContent = ''; apiKeyError.style.display = 'none'; }
         }
     }
 
     function updateLastRetrievedTimestamp(timestampStr) {
-        lastRetrievedTimestampEl.textContent = timestampStr ? `Last retrieved: ${timestampStr}` : '';
+        lastRetrievedTimestamp.textContent = timestampStr ? `Last retrieved: ${timestampStr}` : '';
     }
     
     function updateBreadcrumbs() {
@@ -299,9 +299,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (currentLinkId && currentView === 'linkDetail') {
             html += ` » ${currentLinkPath || `Link ID: ${currentLinkId}`}`; // Use path if available
         }
-        breadcrumbsEl.innerHTML = html;
+        breadCrumbs.innerHTML = html;
 
-        breadcrumbsEl.querySelectorAll('a').forEach(a => {
+        breadCrumbs.querySelectorAll('a').forEach(a => {
             a.addEventListener('click', (e) => {
                 e.preventDefault();
                 const view = e.target.dataset.view;
@@ -383,7 +383,7 @@ document.addEventListener('DOMContentLoaded', () => {
         currentDomainId = domainId; currentDomainHostname = hostname;
         currentLinkId = null; currentLinkPath = null;
         switchToView('domainDetail');
-        selectedDomainHostnameEl.textContent = hostname;
+        selectedDomainHostname.textContent = hostname;
 
         const apiParamsForStats = { domainId, period: currentPeriod };
         if (currentPeriod === 'custom' && customStartDate && customEndDate) {
@@ -402,14 +402,14 @@ document.addEventListener('DOMContentLoaded', () => {
             totalLinksInDomain = 0; 
         }
 
-        const initialLinksCountLabelEl = document.getElementById('domainLinksCountLabel');
-        const initialLinksCountValueEl = document.getElementById('domainLinksCountValue');
+        const initialLinksCountLabel = document.getElementById('domainLinksCountLabel');
+        const initialLinksCountValue = document.getElementById('domainLinksCountValue');
         if (clientFilterName) {
-            initialLinksCountLabelEl.textContent = `Links for "${capitalizeFirstLetter(clientFilterName)}":`;
+            initialLinksCountLabel.textContent = `Links for "${capitalizeFirstLetter(clientFilterName)}":`;
         } else {
-            initialLinksCountLabelEl.textContent = "Total Links in Domain:";
+            initialLinksCountLabel.textContent = "Total Links in Domain:";
         }
-        initialLinksCountValueEl.textContent = "Loading...";
+        initialLinksCountValue.textContent = "Loading...";
 
         const [stats, linksResponse] = await Promise.all([
             shortIOApiCall('get-domain-stats', apiParamsForStats, forceRefreshFromCaller),
@@ -586,11 +586,11 @@ document.addEventListener('DOMContentLoaded', () => {
         currentLinkId = linkId;
         switchToView('linkDetail');
         
-        linkDetailIdDisplayEl.textContent = linkId;
-        selectedLinkPathDisplayEl.textContent = `ID: ${linkId}`;
-        linkDetailShortUrlEl.textContent = 'Loading...';
-        linkDetailOriginalUrlEl.textContent = 'Loading...';
-        linkDetailOriginalUrlEl.removeAttribute('href');
+        linkDetailIdDisplay.textContent = linkId;
+        selectedLinkPathDisplay.textContent = `ID: ${linkId}`;
+        linkDetailShortUrl.textContent = 'Loading...';
+        linkDetailOriginalUrl.textContent = 'Loading...';
+        linkDetailOriginalUrl.removeAttribute('href');
 
         const apiParamsForStats = { linkId, period: currentPeriod };
         if (currentPeriod === 'custom' && customStartDate && customEndDate) {
@@ -605,20 +605,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (linkInfo) {
             currentLinkPath = linkInfo.path ? `/${linkInfo.path}` : (linkInfo.shortURL ? new URL(linkInfo.shortURL).pathname : `ID: ${linkId}`);
-            selectedLinkPathDisplayEl.textContent = currentLinkPath;
-            linkDetailShortUrlEl.textContent = linkInfo.shortURL || 'N/A';
+            selectedLinkPathDisplay.textContent = currentLinkPath;
+            linkDetailShortUrl.textContent = linkInfo.shortURL || 'N/A';
             if (linkInfo.originalURL) {
-                linkDetailOriginalUrlEl.href = linkInfo.originalURL;
-                linkDetailOriginalUrlEl.textContent = linkInfo.originalURL;
+                linkDetailOriginalUrl.href = linkInfo.originalURL;
+                linkDetailOriginalUrl.textContent = linkInfo.originalURL;
             } else {
-                linkDetailOriginalUrlEl.textContent = 'N/A';
+                linkDetailOriginalUrl.textContent = 'N/A';
             }
             updateBreadcrumbs();
         } else {
             currentLinkPath = `ID: ${linkId}`;
-            selectedLinkPathDisplayEl.textContent = currentLinkPath;
-            linkDetailShortUrlEl.textContent = 'Error loading info';
-            linkDetailOriginalUrlEl.textContent = 'Error loading info';
+            selectedLinkPathDisplay.textContent = currentLinkPath;
+            linkDetailShortUrl.textContent = 'Error loading info';
+            linkDetailOriginalUrl.textContent = 'Error loading info';
             updateBreadcrumbs();
         }
         
