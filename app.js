@@ -1,4 +1,4 @@
-// app.js v.0.6 add client function
+// app.js v.0.7 filter client link count function
 document.addEventListener('DOMContentLoaded', () => {
     // Assumes your Cloudflare Function is at /shortio-api relative to your Pages site
     const CLOUDFLARE_WORKER_URL = '/shortio-api';
@@ -402,6 +402,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const paramsForLinkList = { domainId };
         if (pageToken) {
             paramsForLinkList.pageToken = pageToken;
+        } else {
+            // Reset totalLinksInDomain when loading the first page of a domain
+            totalLinksInDomain = 0; 
+        }
+
+        if (!pageToken) { 
+            totalLinksInDomain = 0; 
         }
 
         const [stats, linksResponse] = await Promise.all([
@@ -410,38 +417,48 @@ document.addEventListener('DOMContentLoaded', () => {
         ]);
 
         console.log("linksResponse from API:", linksResponse);
-
-        if (stats) {
-            // We'll pass the actual total link count to renderDomainStats
-        }
+        let displayedLinksCountForStatsCard;
+        
         if (linksResponse && linksResponse.links) {
             console.log("Actual links array:", linksResponse.links);
-            currentDomainLinks = linksResponse.links;
+            currentDomainLinks = linksResponse.links; 
             currentPageToken = linksResponse.nextPageToken || null;
             
-            // If it's the first page load for this domain, use the count from the response.
-            // For subsequent pages, this count is for the whole domain, not just the page.
-            if (!pageToken) { // Only set total count on first page load
-                 totalLinksInDomain = linksResponse.count || 0;
+            if (!pageToken) { // Only set/update total count on first page load of a domain/filter
+                totalLinksInDomain = linksResponse.count || 0;
             }
+
+            // For the stats card:
+            if (clientFilterName) {
+                // If filtering, we cannot reliably show a "total filtered links" count
+                // without fetching all pages. So, we indicate it's a filtered list.
+                // The actual list below will be filtered.
+                displayedLinksCountForStatsCard = "Filtered List"; 
+            } else {
+                displayedLinksCountForStatsCard = totalLinksInDomain; // Show actual total
+            }
+            
             renderLinksList(currentDomainLinks, linksResponse.nextPageToken);
         } else {
             console.error("linksResponse was not as expected or links array is missing/empty", linksResponse);
             linksListContainer.innerHTML = '<p class="text-gray-600">No links found in this domain or failed to load them.</p>';
             document.getElementById('linksPaginationContainer').innerHTML = '';
-            if (!pageToken) totalLinksInDomain = 0; // Reset if initial load fails
+            if (!pageToken) {
+                totalLinksInDomain = 0;
+            }
+            displayedLinksCountForStatsCard = clientFilterName ? "Filtered List" : 0;
         }
         
         // Render domain stats AFTER we have the totalLinksInDomain from linksResponse (if first page)
         // or ensure stats are rendered even if linksResponse is slower.
         if (stats) {
-             renderDomainStats(stats, totalLinksInDomain);
-        } else if (totalLinksInDomain > 0 && !stats) { // If stats failed but we have link count
-             renderDomainStats({}, totalLinksInDomain); // Render with available link count
+             renderDomainStats(stats, displayedLinksCountForStatsCard); // Pass the determined count/label
+        } else if (typeof displayedLinksCountForStatsCard !== 'undefined' && !stats) { // If stats failed but we have some idea for link count
+             renderDomainStats({}, displayedLinksCountForStatsCard);
         }
     }
 
-    function renderDomainStats(stats, actualTotalLinks) {
+    function renderDomainStats(stats, linksCountToDisplay) {
         const periodDisplay = getPeriodDisplayName(currentPeriod, customStartDate, customEndDate);
         const domainDetailViewTitleEl = document.getElementById('domainDetailView'); // Assuming this is the main container
         const existingSubtitle = domainDetailViewTitleEl.querySelector('.domain-stats-subtitle');
@@ -457,10 +474,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 statsTitleH3.innerHTML = `${currentText.trim()} <span class="text-base font-normal text-gray-500 domain-stats-subtitle">(${periodDisplay}, UTC)</span>`;
             }
         }
+
+        let linksCountLabel = "Total Links in Domain:";
+        let linksCountValue = typeof linksCountToDisplay === 'number' ? linksCountToDisplay.toLocaleString() : linksCountToDisplay;
+
+        if (clientFilterName) {
+            linksCountLabel = `Links for "${clientFilterName}":`;
+            // linksCountValue is already "Filtered List" or the count of total if we decide to show that
+            // If we want to show count of visible items on current page:
+            // This would require renderLinksList to give back that number, or re-filter here.
+            // For now, "Filtered List" is a clear indicator.
+        }
         domainStatsContainer.innerHTML = `
             <div class="p-3 bg-indigo-50 rounded-md"><span class="font-bold text-indigo-700">Total Clicks:</span> ${stats.clicks?.toLocaleString() || 0}</div>
             <div class="p-3 bg-purple-50 rounded-md"><span class="font-bold text-purple-700">Human Clicks:</span> ${stats.humanClicks?.toLocaleString() || 0}</div>
-            <div class="p-3 bg-pink-50 rounded-md"><span class="font-bold text-pink-700">Total Links in Domain:</span> ${actualTotalLinks.toLocaleString()}</div>`;
+            <div class="p-3 bg-pink-50 rounded-md"><span class="font-bold text-pink-700">${linksCountLabel}</span> ${linksCountValue}</div>`;
         if (stats.clickStatistics?.datasets?.[0]?.data?.length) renderLineChart('domainClicksChart', 'Clicks', stats.clickStatistics.datasets[0].data); else destroyChart('domainClicksChart');
         if (stats.referer?.length) renderBarChart('domainReferrersChart', stats.referer.map(r => r.referer || 'Direct'), stats.referer.map(r => r.score), 'Clicks', 'Referrers'); else destroyChart('domainReferrersChart');
         if (stats.browser?.length) renderBarChart('domainBrowsersChart', stats.browser.map(b => b.browser), stats.browser.map(b => b.score), 'Sessions', 'Browsers'); else destroyChart('domainBrowsersChart');
