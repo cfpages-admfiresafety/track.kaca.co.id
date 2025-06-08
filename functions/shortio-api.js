@@ -1,5 +1,4 @@
-// functions/shortio-api.js
-
+// functions/shortio-api.js v.0.3 add date option
 const BASE_API_URL = 'https://api.short.io';
 const BASE_STATS_URL = 'https://statistics.short.io';
 
@@ -106,6 +105,7 @@ export async function onRequest(context) {
   const limit = url.searchParams.get('limit') || '50'; // Default to 50 links, adjust as needed
   const pageToken = url.searchParams.get('pageToken');
 
+  let periodParam = url.searchParams.get('period') || 'all';
 
   let apiUrl = '';
   let apiOptions = {
@@ -121,11 +121,22 @@ export async function onRequest(context) {
       case 'list-domains':
         apiUrl = `${BASE_API_URL}/api/domains?limit=100&offset=0`;
         break;
+
       case 'get-domain-stats':
         if (!domainId) return new Response(JSON.stringify({ error: "domainId parameter is required." }), { status: 400, headers: { ...currentCorsHeaders, 'Content-Type': 'application/json' } });
-        apiUrl = `${BASE_STATS_URL}/statistics/domain/${domainId}?period=${period}&tz=${tz}`;
+        apiUrl = `${BASE_STATS_URL}/statistics/domain/${domainId}?tz=${tz}`; // Start with base URL + tz
+        if (periodParam && periodParam.toLowerCase() !== 'all') { // Only add period if it's not 'all'
+            apiUrl += `&period=${periodParam}`;
+        }
+        // If periodParam is 'all', the &period= part is omitted.
+        // This assumes Short.io API interprets no period param as "all time" for stats.
+        // If Short.io needs a specific keyword for 'alltime', change the condition:
+        // e.g., if (periodParam.toLowerCase() === 'all') { apiUrl += `&period=THEIR_ALL_TIME_KEYWORD`; } 
+        //       else { apiUrl += `&period=${periodParam}`; }
+
         apiOptions.headers.accept = '*/*';
         break;
+
       // 'get-domain-link-clicks' can be kept if we want to show quick click counts later,
       // but not the primary source for the link list anymore.
       // case 'get-domain-link-clicks': 
@@ -141,11 +152,16 @@ export async function onRequest(context) {
         }
         // Default 'accept: application/json' is fine
         break;
+
       case 'get-link-stats':
         if (!linkId) return new Response(JSON.stringify({ error: "linkId parameter is required." }), { status: 400, headers: { ...currentCorsHeaders, 'Content-Type': 'application/json' } });
-        apiUrl = `${BASE_STATS_URL}/statistics/link/${linkId}?period=${period}&tz=${tz}`;
+        apiUrl = `${BASE_STATS_URL}/statistics/link/${linkId}?tz=${tz}`; // Start with base URL + tz
+        if (periodParam && periodParam.toLowerCase() !== 'all') { // Only add period if it's not 'all'
+            apiUrl += `&period=${periodParam}`;
+        }
         apiOptions.headers.accept = '*/*';
         break;
+
       case 'get-link-info':
         if (!linkId) return new Response(JSON.stringify({ error: "linkId parameter is required." }), { status: 400, headers: { ...currentCorsHeaders, 'Content-Type': 'application/json' } });
         apiUrl = `${BASE_API_URL}/links/${linkId}`;

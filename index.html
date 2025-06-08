@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Short.io Stats Tracker</title>
+    <title>Click Stats Tracker v0.3</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
@@ -24,7 +24,7 @@
 
     <div class="container mx-auto p-4">
         <header class="bg-blue-600 text-white p-6 rounded-t-lg shadow-md">
-            <h1 class="text-3xl font-bold">Short.io Link Statistics</h1>
+            <h1 class="text-3xl font-bold">Click Link Statistics</h1>
         </header>
 
         <!-- API Key View -->
@@ -56,7 +56,20 @@
                         Reset All Data
                     </button>
                 </div>
-                <p id="lastRetrievedTimestamp" class="text-sm text-gray-600"></p>
+                <div class="flex items-center gap-2">
+                    <div id="periodSelectorContainer" class="text-sm">
+                        <label for="periodSelect" class="mr-1">Period:</label>
+                        <select id="periodSelect" class="p-1 border border-gray-300 rounded text-sm">
+                            <option value="all" selected>All Time</option>
+                            <option value="last7">Last 7 Days</option>
+                            <option value="last30">Last 30 Days</option>
+                            <option value="last90">Last 90 Days</option>
+                            <option value="month">This Month</option>
+                            <option value="lastmonth">Last Month</option>
+                        </select>
+                    </div>
+                    <p id="lastRetrievedTimestamp" class="text-sm text-gray-600"></p>
+                </div>
             </div>
             <p id="loadingIndicator" class="text-blue-500 my-4 hidden"><div class="loader"></div> Fetching data...</p>
             <p id="globalError" class="text-red-500 my-4 p-3 bg-red-100 border border-red-400 rounded hidden"></p>

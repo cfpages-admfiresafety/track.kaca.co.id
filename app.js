@@ -1,4 +1,4 @@
-// app.js v.02 debugging jnck
+// app.js v.0.3 add date function
 document.addEventListener('DOMContentLoaded', () => {
     // Assumes your Cloudflare Function is at /shortio-api relative to your Pages site
     const CLOUDFLARE_WORKER_URL = '/shortio-api';
@@ -37,7 +37,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const linkDetailOriginalUrlEl = document.getElementById('linkDetailOriginalUrl');
     const linkDetailIdDisplayEl = document.getElementById('linkDetailIdDisplay');
     const linkStatsContainer = document.getElementById('linkStatsContainer');
-    const resetDataButton = document.getElementById('resetDataButton'); // New element
+    const resetDataButton = document.getElementById('resetDataButton');
+    const periodSelect = document.getElementById('periodSelect');
 
     let currentApiKey = null;
     let currentView = 'apiKey';
@@ -46,6 +47,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentLinkId = null;
     let currentLinkPath = null; // For breadcrumbs
     let activeLoadCounter = 0;
+    let totalLinksInDomain = 0;
+    let currentPeriod = 'all';
 
     let chartInstances = {};
 
@@ -339,50 +342,60 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function loadDomainDetails(domainId, hostname, forceRefresh = false, pageToken = null) {
         currentDomainId = domainId; currentDomainHostname = hostname;
-        currentLinkId = null; currentLinkPath = null; // Reset link context
+        currentLinkId = null; currentLinkPath = null;
         switchToView('domainDetail');
         selectedDomainHostnameEl.textContent = hostname;
 
-        // Fetch domain stats and the list of all links
-        // The 'list-domain-links' endpoint returns { count, links, nextPageToken }
         const paramsForLinks = { domainId };
         if (pageToken) {
             paramsForLinks.pageToken = pageToken;
+        } else {
+            // Reset totalLinksInDomain when loading the first page of a domain
+            totalLinksInDomain = 0; 
         }
 
         const [stats, linksResponse] = await Promise.all([
-            shortIOApiCall('get-domain-stats', { domainId }, forceRefresh),
-            shortIOApiCall('list-domain-links', paramsForLinks, forceRefresh) // This SHOULD be list-domain-links
+            shortIOApiCall('get-domain-stats', { domainId, period: currentPeriod }, forceRefresh), 
+            shortIOApiCall('list-domain-links', paramsForLinks, forceRefresh) // list-domain-links doesn't use period
         ]);
 
-        console.log("linksResponse from API:", linksResponse); // DEBUG LINE
+        console.log("linksResponse from API:", linksResponse);
 
         if (stats) {
-            renderDomainStats(stats);
-            // The 'Total Links' from stats might be different from the actual count of all links.
-            // We can decide which one to prioritize or show both.
-            // For now, domainStatsContainer shows stats.links (from stats endpoint)
+            // We'll pass the actual total link count to renderDomainStats
         }
         if (linksResponse && linksResponse.links) {
-            currentDomainLinks = linksResponse.links; // Store for current view
-            currentPageToken = linksResponse.nextPageToken || null; // Store for "Next" button
-            // prevPageToken would need to be managed if we implement full pagination
+            console.log("Actual links array:", linksResponse.links);
+            currentDomainLinks = linksResponse.links;
+            currentPageToken = linksResponse.nextPageToken || null;
+            
+            // If it's the first page load for this domain, use the count from the response.
+            // For subsequent pages, this count is for the whole domain, not just the page.
+            if (!pageToken) { // Only set total count on first page load
+                 totalLinksInDomain = linksResponse.count || 0;
+            }
             renderLinksList(currentDomainLinks, linksResponse.nextPageToken);
         } else {
+            console.error("linksResponse was not as expected or links array is missing/empty", linksResponse);
             linksListContainer.innerHTML = '<p class="text-gray-600">No links found in this domain or failed to load them.</p>';
             document.getElementById('linksPaginationContainer').innerHTML = '';
+            if (!pageToken) totalLinksInDomain = 0; // Reset if initial load fails
+        }
+        
+        // Render domain stats AFTER we have the totalLinksInDomain from linksResponse (if first page)
+        // or ensure stats are rendered even if linksResponse is slower.
+        if (stats) {
+             renderDomainStats(stats, totalLinksInDomain);
+        } else if (totalLinksInDomain > 0 && !stats) { // If stats failed but we have link count
+             renderDomainStats({}, totalLinksInDomain); // Render with available link count
         }
     }
 
-    function renderDomainStats(stats) {
-        // The stats.links value is from the statistics endpoint (e.g., new links in period, or total active links)
-        // It might differ from the count of *all* links retrieved by the list-domain-links endpoint.
-        // You might want to clarify in the UI or remove one if it's confusing.
+    function renderDomainStats(stats, actualTotalLinks) { // Added actualTotalLinks parameter
         domainStatsContainer.innerHTML = `
             <div class="p-3 bg-indigo-50 rounded-md"><span class="font-bold text-indigo-700">Total Clicks:</span> ${stats.clicks?.toLocaleString() || 0}</div>
             <div class="p-3 bg-purple-50 rounded-md"><span class="font-bold text-purple-700">Human Clicks:</span> ${stats.humanClicks?.toLocaleString() || 0}</div>
-            <div class="p-3 bg-pink-50 rounded-md"><span class="font-bold text-pink-700">Domain Stat Links:</span> ${stats.links?.toLocaleString() || 0}</div>`;
-        
+            <div class="p-3 bg-pink-50 rounded-md"><span class="font-bold text-pink-700">Total Links in Domain:</span> ${actualTotalLinks.toLocaleString()}</div>`;
         if (stats.clickStatistics?.datasets?.[0]?.data?.length) renderLineChart('domainClicksChart', 'Clicks', stats.clickStatistics.datasets[0].data); else destroyChart('domainClicksChart');
         if (stats.referer?.length) renderBarChart('domainReferrersChart', stats.referer.map(r => r.referer || 'Direct'), stats.referer.map(r => r.score), 'Clicks', 'Referrers'); else destroyChart('domainReferrersChart');
         if (stats.browser?.length) renderBarChart('domainBrowsersChart', stats.browser.map(b => b.browser), stats.browser.map(b => b.score), 'Sessions', 'Browsers'); else destroyChart('domainBrowsersChart');
@@ -448,8 +461,8 @@ document.addEventListener('DOMContentLoaded', () => {
         linkDetailOriginalUrlEl.removeAttribute('href');
 
         const [stats, linkInfo] = await Promise.all([
-            shortIOApiCall('get-link-stats', { linkId }, forceRefresh),
-            shortIOApiCall('get-link-info', { linkId }, forceRefresh) // Uses linkId (idString usually)
+            shortIOApiCall('get-link-stats', { linkId, period: currentPeriod }, forceRefresh),
+            shortIOApiCall('get-link-info', { linkId }, forceRefresh)
         ]);
 
         if (linkInfo) {
@@ -487,6 +500,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (stats.browser?.length) renderBarChart('linkBrowsersChart', stats.browser.map(b => b.browser), stats.browser.map(b => b.score), 'Sessions', 'Browsers'); else destroyChart('linkBrowsersChart');
         if (stats.country?.length) renderBarChart('linkCountriesChart', stats.country.map(c => c.countryName || c.country), stats.country.map(c => c.score), 'Clicks', 'Countries'); else destroyChart('linkCountriesChart');
         if (stats.os?.length) renderBarChart('linkOsChart', stats.os.map(o => o.os), stats.os.map(o => o.score), 'Sessions', 'Operating Systems'); else destroyChart('linkOsChart');
+    }
+
+    function renderPeriodSelector() { // Call this in init and maybe when views change
+        if (periodSelect) {
+            periodSelect.value = currentPeriod; // Set its initial value
+        }
     }
 
     // --- Helper function to clear all app-specific localStorage data ---
@@ -536,21 +555,58 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    if (periodSelect) {
+        periodSelect.addEventListener('change', (event) => {
+            currentPeriod = event.target.value;
+            localStorage.setItem('shortio_selectedPeriod', currentPeriod); // Persist choice
+            console.log("Period changed to:", currentPeriod);
+
+            // Re-fetch data for the current view with the new period
+            if (currentView === 'domainDetail' && currentDomainId) {
+                // Clear existing charts before reloading to avoid visual glitches
+                ['domainClicksChart', 'domainReferrersChart', 'domainBrowsersChart', 'domainCountriesChart', 'domainOsChart'].forEach(destroyChart);
+                domainStatsContainer.innerHTML = '<p>Loading new period data...</p>'; // Placeholder
+                // When period changes for domain view, also reset to first page of links
+                loadDomainDetails(currentDomainId, currentDomainHostname, true, null); 
+            } else if (currentView === 'linkDetail' && currentLinkId) {
+                // Clear existing charts
+                ['linkClicksChart', 'linkReferrersChart', 'linkBrowsersChart', 'linkCountriesChart', 'linkOsChart'].forEach(destroyChart);
+                linkStatsContainer.innerHTML = '<p>Loading new period data...</p>'; // Placeholder
+                loadLinkDetails(currentLinkId, true);
+            }
+        });
+    }
+
     function init() {
         if (CLOUDFLARE_WORKER_URL.startsWith('YOUR_')) {
-             switchToView('apiKey'); // Stay on API key view
+             switchToView('apiKey');
              showError('CRITICAL: Cloudflare Worker URL is not configured in app.js.');
-             // apiKeyError.textContent = 'CRITICAL: Cloudflare Worker URL is not configured in app.js.'; // Already handled by showError
              return;
         }
 
-        if (loadApiKey()) { // loadApiKey just reads from localStorage
-            loadDomains(); // Attempt to load domains if API key exists
+        const urlParams = new URLSearchParams(window.location.search);
+        const apiKeyFromParam = urlParams.get('apikey');
+
+        if (apiKeyFromParam) {
+            console.log("API Key found in URL parameter.");
+            apiKeyInput.value = apiKeyFromParam; // Populate the input for consistency
+            saveApiKey(); // This will save to localStorage and load domains
+            // Remove the apikey from URL to prevent it from being bookmarked or shared accidentally
+            window.history.replaceState({}, document.title, window.location.pathname); 
+        } else if (loadApiKey()) { // loadApiKey just reads from localStorage
+            loadDomains(); // Attempt to load domains if API key exists from storage
         } else {
-            // If no API key, ensure we are on the API key view and state is clean
+            // If no API key from param or storage, ensure we are on the API key view and state is clean
             clearAllAppData(); // Make sure everything is reset if no key found
             switchToView('apiKey');
         }
+
+        const savedPeriod = localStorage.getItem('shortio_selectedPeriod');
+        if (savedPeriod && periodSelect.querySelector(`option[value="${savedPeriod}"]`)) {
+            currentPeriod = savedPeriod;
+        } // else currentPeriod remains 'all' (our new default)
+
+        renderPeriodSelector(); // Set the visual state of the dropdown
         updateBreadcrumbs(); // Initial breadcrumb
     }
     init();
