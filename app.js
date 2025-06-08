@@ -1,4 +1,4 @@
-// app.js v.0.3 add date function
+// app.js v.0.4 custom date function
 document.addEventListener('DOMContentLoaded', () => {
     // Assumes your Cloudflare Function is at /shortio-api relative to your Pages site
     const CLOUDFLARE_WORKER_URL = '/shortio-api';
@@ -38,7 +38,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const linkDetailIdDisplayEl = document.getElementById('linkDetailIdDisplay');
     const linkStatsContainer = document.getElementById('linkStatsContainer');
     const resetDataButton = document.getElementById('resetDataButton');
+
+    // Period Selection & Picker
     const periodSelect = document.getElementById('periodSelect');
+    const customDateRangeContainer = document.getElementById('customDateRangeContainer');
+    const startDateInput = document.getElementById('startDateInput');
+    const endDateInput = document.getElementById('endDateInput');
+    const applyCustomDateRangeButton = document.getElementById('applyCustomDateRangeButton');
+
+    let currentPeriod = 'total'; // Default period
+    let customStartDate = ''; // Store custom start date
+    let customEndDate = '';   // Store custom end date
 
     let currentApiKey = null;
     let currentView = 'apiKey';
@@ -48,7 +58,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentLinkPath = null; // For breadcrumbs
     let activeLoadCounter = 0;
     let totalLinksInDomain = 0;
-    let currentPeriod = 'all';
 
     let chartInstances = {};
 
@@ -354,9 +363,15 @@ document.addEventListener('DOMContentLoaded', () => {
             totalLinksInDomain = 0; 
         }
 
+        const apiParamsForStats = { domainId, period: currentPeriod };
+        if (currentPeriod === 'custom' && customStartDate && customEndDate) {
+            apiParamsForStats.startDate = customStartDate;
+            apiParamsForStats.endDate = customEndDate;
+        }
+
         const [stats, linksResponse] = await Promise.all([
-            shortIOApiCall('get-domain-stats', { domainId, period: currentPeriod }, forceRefresh), 
-            shortIOApiCall('list-domain-links', paramsForLinks, forceRefresh) // list-domain-links doesn't use period
+            shortIOApiCall('get-domain-stats', apiParamsForStats, forceRefresh),
+            shortIOApiCall('list-domain-links', paramsForLinks, forceRefresh)
         ]);
 
         console.log("linksResponse from API:", linksResponse);
@@ -460,8 +475,14 @@ document.addEventListener('DOMContentLoaded', () => {
         linkDetailOriginalUrlEl.textContent = 'Loading...';
         linkDetailOriginalUrlEl.removeAttribute('href');
 
+        const apiParamsForStats = { linkId, period: currentPeriod };
+        if (currentPeriod === 'custom' && customStartDate && customEndDate) {
+            apiParamsForStats.startDate = customStartDate;
+            apiParamsForStats.endDate = customEndDate;
+        }
+
         const [stats, linkInfo] = await Promise.all([
-            shortIOApiCall('get-link-stats', { linkId, period: currentPeriod }, forceRefresh),
+            shortIOApiCall('get-link-stats', apiParamsForStats, forceRefresh),
             shortIOApiCall('get-link-info', { linkId }, forceRefresh)
         ]);
 
@@ -502,9 +523,45 @@ document.addEventListener('DOMContentLoaded', () => {
         if (stats.os?.length) renderBarChart('linkOsChart', stats.os.map(o => o.os), stats.os.map(o => o.score), 'Sessions', 'Operating Systems'); else destroyChart('linkOsChart');
     }
 
-    function renderPeriodSelector() { // Call this in init and maybe when views change
+    function renderPeriodSelector() {
         if (periodSelect) {
-            periodSelect.value = currentPeriod; // Set its initial value
+            periodSelect.value = currentPeriod;
+            if (currentPeriod === 'custom') {
+                customDateRangeContainer.classList.remove('hidden');
+                customDateRangeContainer.classList.add('flex'); // Use flex for alignment
+                startDateInput.value = customStartDate || ''; // Restore saved/previous values
+                endDateInput.value = customEndDate || '';
+            } else {
+                customDateRangeContainer.classList.add('hidden');
+                customDateRangeContainer.classList.remove('flex');
+            }
+        }
+    }
+
+    function applyDateFiltersAndRefresh() {
+        // This function will be called by periodSelect change (if not custom)
+        // or by applyCustomDateRangeButton
+        console.log("Applying filters. Period:", currentPeriod, "Start:", customStartDate, "End:", customEndDate);
+
+        // Persist choices
+        localStorage.setItem('shortio_selectedPeriod', currentPeriod);
+        if (currentPeriod === 'custom') {
+            localStorage.setItem('shortio_customStartDate', customStartDate);
+            localStorage.setItem('shortio_customEndDate', customEndDate);
+        } else {
+            localStorage.removeItem('shortio_customStartDate');
+            localStorage.removeItem('shortio_customEndDate');
+        }
+
+        // Re-fetch data for the current view
+        if (currentView === 'domainDetail' && currentDomainId) {
+            ['domainClicksChart', 'domainReferrersChart', 'domainBrowsersChart', 'domainCountriesChart', 'domainOsChart'].forEach(destroyChart);
+            domainStatsContainer.innerHTML = '<p>Loading new period data...</p>';
+            loadDomainDetails(currentDomainId, currentDomainHostname, true, null);
+        } else if (currentView === 'linkDetail' && currentLinkId) {
+            ['linkClicksChart', 'linkReferrersChart', 'linkBrowsersChart', 'linkCountriesChart', 'linkOsChart'].forEach(destroyChart);
+            linkStatsContainer.innerHTML = '<p>Loading new period data...</p>';
+            loadLinkDetails(currentLinkId, true);
         }
     }
 
@@ -558,22 +615,36 @@ document.addEventListener('DOMContentLoaded', () => {
     if (periodSelect) {
         periodSelect.addEventListener('change', (event) => {
             currentPeriod = event.target.value;
-            localStorage.setItem('shortio_selectedPeriod', currentPeriod); // Persist choice
-            console.log("Period changed to:", currentPeriod);
+            renderPeriodSelector(); // Show/hide custom date inputs
 
-            // Re-fetch data for the current view with the new period
-            if (currentView === 'domainDetail' && currentDomainId) {
-                // Clear existing charts before reloading to avoid visual glitches
-                ['domainClicksChart', 'domainReferrersChart', 'domainBrowsersChart', 'domainCountriesChart', 'domainOsChart'].forEach(destroyChart);
-                domainStatsContainer.innerHTML = '<p>Loading new period data...</p>'; // Placeholder
-                // When period changes for domain view, also reset to first page of links
-                loadDomainDetails(currentDomainId, currentDomainHostname, true, null); 
-            } else if (currentView === 'linkDetail' && currentLinkId) {
-                // Clear existing charts
-                ['linkClicksChart', 'linkReferrersChart', 'linkBrowsersChart', 'linkCountriesChart', 'linkOsChart'].forEach(destroyChart);
-                linkStatsContainer.innerHTML = '<p>Loading new period data...</p>'; // Placeholder
-                loadLinkDetails(currentLinkId, true);
+            if (currentPeriod !== 'custom') {
+                // If a predefined period is selected, clear custom dates and apply immediately
+                customStartDate = '';
+                customEndDate = '';
+                applyDateFiltersAndRefresh();
             }
+        });
+    }
+
+    if (applyCustomDateRangeButton) {
+        applyCustomDateRangeButton.addEventListener('click', () => {
+            const start = startDateInput.value;
+            const end = endDateInput.value;
+
+            if (!start || !end) {
+                showError("Please select both a start and an end date for the custom range.");
+                // Alternatively, alert("Please select both a start and an end date.");
+                return;
+            }
+            if (new Date(start) > new Date(end)) {
+                showError("Start date cannot be after end date.");
+                // Alternatively, alert("Start date cannot be after end date.");
+                return;
+            }
+            customStartDate = start;
+            customEndDate = end;
+            // currentPeriod should already be 'custom' if this button is visible and clicked
+            applyDateFiltersAndRefresh();
         });
     }
 
@@ -602,9 +673,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const savedPeriod = localStorage.getItem('shortio_selectedPeriod');
-        if (savedPeriod && periodSelect.querySelector(`option[value="${savedPeriod}"]`)) {
+        const validPeriods = Array.from(periodSelect.options).map(opt => opt.value);
+        if (savedPeriod && validPeriods.includes(savedPeriod)) {
             currentPeriod = savedPeriod;
-        } // else currentPeriod remains 'all' (our new default)
+            if (currentPeriod === 'custom') {
+                customStartDate = localStorage.getItem('shortio_customStartDate') || '';
+                customEndDate = localStorage.getItem('shortio_customEndDate') || '';
+                // Pre-fill date inputs if custom was saved (renderPeriodSelector will do this)
+            }
+        } // else currentPeriod remains 'total' (default)
 
         renderPeriodSelector(); // Set the visual state of the dropdown
         updateBreadcrumbs(); // Initial breadcrumb

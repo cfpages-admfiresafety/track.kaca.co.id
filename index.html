@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Click Stats Tracker v0.3</title>
+    <title>Click Stats Tracker v0.4</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
@@ -56,19 +56,29 @@
                         Reset All Data
                     </button>
                 </div>
-                <div class="flex items-center gap-2">
+                <div class="flex flex-wrap items-center gap-2">
                     <div id="periodSelectorContainer" class="text-sm">
                         <label for="periodSelect" class="mr-1">Period:</label>
                         <select id="periodSelect" class="p-1 border border-gray-300 rounded text-sm">
-                            <option value="all" selected>All Time</option>
+                            <option value="total" selected>All Time</option>
                             <option value="last7">Last 7 Days</option>
                             <option value="last30">Last 30 Days</option>
-                            <option value="last90">Last 90 Days</option>
-                            <option value="month">This Month</option>
+                            <option value="month">This Month (To Date)</option>
                             <option value="lastmonth">Last Month</option>
+                            <option value="week">This Week (To Date)</option>
+                            <option value="today">Today</option>
+                            <option value="yesterday">Yesterday</option>
+                            <option value="custom">Custom Range</option>
                         </select>
                     </div>
-                    <p id="lastRetrievedTimestamp" class="text-sm text-gray-600"></p>
+                    <div id="customDateRangeContainer" class="hidden items-center gap-2 text-sm">
+                        <label for="startDateInput" class="mr-1">From:</label>
+                        <input type="date" id="startDateInput" class="p-1 border border-gray-300 rounded text-sm">
+                        <label for="endDateInput" class="ml-2 mr-1">To:</label>
+                        <input type="date" id="endDateInput" class="p-1 border border-gray-300 rounded text-sm">
+                        <button id="applyCustomDateRangeButton" class="bg-blue-500 hover:bg-blue-600 text-white text-xs py-1 px-2 rounded ml-2">Apply</button>
+                    </div>
+                    <p id="lastRetrievedTimestamp" class="text-sm text-gray-600 ml-auto"></p>
                 </div>
             </div>
             <p id="loadingIndicator" class="text-blue-500 my-4 hidden"><div class="loader"></div> Fetching data...</p>

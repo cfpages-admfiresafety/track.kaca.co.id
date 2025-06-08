@@ -1,4 +1,4 @@
-// functions/shortio-api.js v.0.3 add date option
+// functions/shortio-api.js v.0.4 custom date option
 const BASE_API_URL = 'https://api.short.io';
 const BASE_STATS_URL = 'https://statistics.short.io';
 
@@ -99,13 +99,13 @@ export async function onRequest(context) {
   const action = url.searchParams.get('action');
   const domainId = url.searchParams.get('domainId');
   const linkId = url.searchParams.get('linkId');
-  const period = url.searchParams.get('period') || 'last30';
+  const period = url.searchParams.get('period') || 'total'; 
   const tz = url.searchParams.get('tz') || 'UTC';
-  // For list-domain-links, we might want pagination params in the future
-  const limit = url.searchParams.get('limit') || '50'; // Default to 50 links, adjust as needed
+  const limit = url.searchParams.get('limit') || '50';
   const pageToken = url.searchParams.get('pageToken');
+  const startDate = url.searchParams.get('startDate');
+  const endDate = url.searchParams.get('endDate');
 
-  let periodParam = url.searchParams.get('period') || 'all';
 
   let apiUrl = '';
   let apiOptions = {
@@ -124,16 +124,19 @@ export async function onRequest(context) {
 
       case 'get-domain-stats':
         if (!domainId) return new Response(JSON.stringify({ error: "domainId parameter is required." }), { status: 400, headers: { ...currentCorsHeaders, 'Content-Type': 'application/json' } });
-        apiUrl = `${BASE_STATS_URL}/statistics/domain/${domainId}?tz=${tz}`; // Start with base URL + tz
-        if (periodParam && periodParam.toLowerCase() !== 'all') { // Only add period if it's not 'all'
-            apiUrl += `&period=${periodParam}`;
+        apiUrl = `${BASE_STATS_URL}/statistics/domain/${domainId}?period=${period}&tz=${tz}`; 
+        if (period.toLowerCase() === 'custom' && startDate && endDate) {
+            apiUrl += `&startDate=${startDate}&endDate=${endDate}`;
         }
-        // If periodParam is 'all', the &period= part is omitted.
-        // This assumes Short.io API interprets no period param as "all time" for stats.
-        // If Short.io needs a specific keyword for 'alltime', change the condition:
-        // e.g., if (periodParam.toLowerCase() === 'all') { apiUrl += `&period=THEIR_ALL_TIME_KEYWORD`; } 
-        //       else { apiUrl += `&period=${periodParam}`; }
+        apiOptions.headers.accept = '*/*';
+        break;
 
+      case 'get-link-stats':
+        if (!linkId) return new Response(JSON.stringify({ error: "linkId parameter is required." }), { status: 400, headers: { ...currentCorsHeaders, 'Content-Type': 'application/json' } });
+        apiUrl = `${BASE_STATS_URL}/statistics/link/${linkId}?period=${period}&tz=${tz}`;
+        if (period.toLowerCase() === 'custom' && startDate && endDate) {
+            apiUrl += `&endDate=${endDate}&startDate=${startDate}`; // Order shouldn't matter but consistency
+        }
         apiOptions.headers.accept = '*/*';
         break;
 
@@ -151,15 +154,6 @@ export async function onRequest(context) {
           apiUrl += `&pageToken=${pageToken}`;
         }
         // Default 'accept: application/json' is fine
-        break;
-
-      case 'get-link-stats':
-        if (!linkId) return new Response(JSON.stringify({ error: "linkId parameter is required." }), { status: 400, headers: { ...currentCorsHeaders, 'Content-Type': 'application/json' } });
-        apiUrl = `${BASE_STATS_URL}/statistics/link/${linkId}?tz=${tz}`; // Start with base URL + tz
-        if (periodParam && periodParam.toLowerCase() !== 'all') { // Only add period if it's not 'all'
-            apiUrl += `&period=${periodParam}`;
-        }
-        apiOptions.headers.accept = '*/*';
         break;
 
       case 'get-link-info':
