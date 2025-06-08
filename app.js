@@ -475,15 +475,15 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        const linksCountLabelEl = document.getElementById('domainLinksCountLabel');
-        const linksCountValueEl = document.getElementById('domainLinksCountValue');
+        const linksCountLabel = document.getElementById('domainLinksCountLabel');
+        const linksCountValue = document.getElementById('domainLinksCountValue');
 
         if (clientFilterName) {
-            linksCountLabelEl.textContent = `Links for "${capitalizeFirstLetter(clientFilterName)}":`;
+            linksCountLabel.textContent = `Links for "${capitalizeFirstLetter(clientFilterName)}":`;
         } else {
-            linksCountLabelEl.textContent = "Total Links in Domain:";
+            linksCountLabel.textContent = "Total Links in Domain:";
         }
-        linksCountValueEl.textContent = "Loading...";
+        linksCountValue.textContent = "Loading...";
         domainStatsContainer.innerHTML = `
             <div class="p-3 bg-indigo-50 rounded-md"><span class="font-bold text-indigo-700">Total Clicks:</span> ${stats.clicks?.toLocaleString() || 0}</div>
             <div class="p-3 bg-purple-50 rounded-md"><span class="font-bold text-purple-700">Human Clicks:</span> ${stats.humanClicks?.toLocaleString() || 0}</div>
@@ -499,8 +499,8 @@ document.addEventListener('DOMContentLoaded', () => {
         linksListContainer.innerHTML = '';
         const paginationContainer = document.getElementById('linksPaginationContainer');
         paginationContainer.innerHTML = '';
-        const linksCountLabelEl = document.getElementById('domainLinksCountLabel');
-        const linksCountValueEl = document.getElementById('domainLinksCountValue');
+        const linksCountLabel = document.getElementById('domainLinksCountLabel');
+        const linksCountValue = document.getElementById('domainLinksCountValue');
 
         let filteredLinks = links;
         let displayedCount = 0;
@@ -513,17 +513,17 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             console.log(`Found ${filteredLinks.length} links after filtering on this page.`);
             displayedCount = filteredLinks.length;
-            linksCountLabelEl.textContent = `Links for "${capitalizeFirstLetter(clientFilterName)}":`;
+            linksCountLabel.textContent = `Links for "${capitalizeFirstLetter(clientFilterName)}":`;
             // The count here is for the *current page*.
             // We could add " (on this page)" if nextPageTokenForPagination exists,
             // or if displayedCount < actualTotalLinksInDomain (though actualTotal is for non-filtered).
             // For simplicity, just show the count of items visible.
-            linksCountValueEl.textContent = displayedCount.toLocaleString();
+            linksCountValue.textContent = displayedCount.toLocaleString();
         } else {
             // No client filter, show total links for the domain
             displayedCount = actualTotalLinksInDomain; // Use the total count passed in
-            linksCountLabelEl.textContent = "Total Links in Domain:";
-            linksCountValueEl.textContent = displayedCount.toLocaleString();
+            linksCountLabel.textContent = "Total Links in Domain:";
+            linksCountValue.textContent = displayedCount.toLocaleString();
             // filteredLinks is still the same as links here
         }
 
