@@ -1,4 +1,4 @@
-// app.js v.1.0 filter client link count function works
+// app.js v.1.0.1 error fix + should be more robust
 document.addEventListener('DOMContentLoaded', () => {
     // Assumes your Cloudflare Function is at /shortio-api relative to your Pages site
     const CLOUDFLARE_WORKER_URL = '/shortio-api';
@@ -21,7 +21,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const lastRetrievedTimestamp = document.getElementById('lastRetrievedTimestamp');
     const loadingIndicator = document.getElementById('loadingIndicator');
     const globalError = document.getElementById('globalError');
-    const breadCrumbs = document.getElementById('breadcrumbs');
+    const breadcrumbsEl = document.getElementById('breadcrumbs');
 
     // Domains View Elements
     const domainsListContainer = document.getElementById('domainsListContainer');
@@ -297,9 +297,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (currentLinkId && currentView === 'linkDetail') {
             html += ` » ${currentLinkPath || `Link ID: ${currentLinkId}`}`; // Use path if available
         }
-        breadCrumbs.innerHTML = html;
+        breadcrumbsEl.innerHTML = html;
 
-        breadCrumbs.querySelectorAll('a').forEach(a => {
+        breadcrumbsEl.querySelectorAll('a').forEach(a => {
             a.addEventListener('click', (e) => {
                 e.preventDefault();
                 const view = e.target.dataset.view;
@@ -381,16 +381,32 @@ document.addEventListener('DOMContentLoaded', () => {
         currentDomainId = domainId; currentDomainHostname = hostname;
         currentLinkId = null; currentLinkPath = null;
         switchToView('domainDetail');
-        selectedDomainHostname.textContent = hostname;
+
+        // Get the element reference *after* its parent view is made visible
+        const selectedDomainHostnameEl = document.getElementById('selectedDomainHostname');
+        if (selectedDomainHostnameEl) {
+            selectedDomainHostnameEl.textContent = hostname;
+        } else {
+            console.error("Could not find element with ID 'selectedDomainHostname' after switching view.");
+            // Optionally, show a user-facing error or degrade gracefully
+        }
 
         // Set initial "Loading..." states for elements updated by different functions
-        document.getElementById('domainTotalClicks').textContent = "Loading...";
-        document.getElementById('domainHumanClicks').textContent = "Loading...";
-        document.getElementById('domainLinksCountLabel').textContent = clientFilterName ? `Links for "${capitalizeFirstLetter(clientFilterName)}":` : "Total Links in Domain:";
-        document.getElementById('domainLinksCountValue').textContent = "Loading...";
-        // Clear charts before new data to avoid showing old data during load
-        ['domainClicksChart', 'domainReferrersChart', 'domainBrowsersChart', 'domainCountriesChart', 'domainOsChart'].forEach(destroyChart);
+        // It's good practice to also get these elements here or ensure they exist
+        const domainTotalClicksEl = document.getElementById('domainTotalClicks');
+        const domainHumanClicksEl = document.getElementById('domainHumanClicks');
+        const domainLinksCountLabelEl = document.getElementById('domainLinksCountLabel');
+        const domainLinksCountValueEl = document.getElementById('domainLinksCountValue');
 
+        if (domainTotalClicksEl) domainTotalClicksEl.textContent = "Loading...";
+        if (domainHumanClicksEl) domainHumanClicksEl.textContent = "Loading...";
+        
+        if (domainLinksCountLabelEl) {
+            domainLinksCountLabelEl.textContent = clientFilterName ? `Links for "${capitalizeFirstLetter(clientFilterName)}":` : "Total Links in Domain:";
+        }
+        if (domainLinksCountValueEl) domainLinksCountValueEl.textContent = "Loading...";
+        
+        ['domainClicksChart', 'domainReferrersChart', 'domainBrowsersChart', 'domainCountriesChart', 'domainOsChart'].forEach(destroyChart);
 
         const apiParamsForStats = { domainId, period: currentPeriod };
         if (currentPeriod === 'custom' && customStartDate && customEndDate) {
@@ -402,59 +418,56 @@ document.addEventListener('DOMContentLoaded', () => {
         if (pageToken) {
             paramsForLinkList.pageToken = pageToken;
         } else {
-            totalLinksInDomain = 0; // Reset the overall domain link count for new domain/first page
+            totalLinksInDomain = 0;
         }
 
-        // Fetch in parallel
         const [statsResponseData, linksApiResponseData] = await Promise.all([
             shortIOApiCall('get-domain-stats', apiParamsForStats, forceRefreshFromCaller),
             shortIOApiCall('list-domain-links', paramsForLinkList, pageToken ? false : forceRefreshFromCaller)
         ]);
 
-        // Process stats response
         if (statsResponseData) {
             renderDomainStats(statsResponseData);
         } else {
-            renderDomainStats({}); // Pass empty object to show 0s and clear charts if API failed
+            renderDomainStats({});
         }
 
-        // Process links list response
         console.log("linksResponse from API:", linksApiResponseData);
         if (linksApiResponseData && linksApiResponseData.links) {
             console.log("Actual links array:", linksApiResponseData.links);
             currentDomainLinks = linksApiResponseData.links;
             currentPageToken = linksApiResponseData.nextPageToken || null;
 
-            if (!pageToken) { // Only set/update total domain link count on first page load
+            if (!pageToken) {
                 totalLinksInDomain = linksApiResponseData.count || 0;
             }
             renderLinksList(currentDomainLinks, linksApiResponseData.nextPageToken, totalLinksInDomain);
         } else {
             console.error("linksResponse was not as expected or links array is missing/empty", linksApiResponseData);
-            linksListContainer.innerHTML = '<p class="text-gray-600">No links found in this domain or failed to load them.</p>';
-            document.getElementById('linksPaginationContainer').innerHTML = '';
+            if (linksListContainer) linksListContainer.innerHTML = '<p class="text-gray-600">No links found in this domain or failed to load them.</p>';
+            const paginationContainer = document.getElementById('linksPaginationContainer');
+            if (paginationContainer) paginationContainer.innerHTML = '';
+            
             if (!pageToken) totalLinksInDomain = 0;
-            // Update the specific links count card if links fail to load
-            document.getElementById('domainLinksCountLabel').textContent = clientFilterName ? `Links for "${capitalizeFirstLetter(clientFilterName)}":` : "Total Links in Domain:";
-            document.getElementById('domainLinksCountValue').textContent = "0";
+            
+            if (domainLinksCountLabelEl) domainLinksCountLabelEl.textContent = clientFilterName ? `Links for "${capitalizeFirstLetter(clientFilterName)}":` : "Total Links in Domain:";
+            if (domainLinksCountValueEl) domainLinksCountValueEl.textContent = "0";
         }
     }
 
     function renderDomainStats(stats) {
         const periodDisplay = getPeriodDisplayName(currentPeriod, customStartDate, customEndDate);
-        const domainDetailView = document.getElementById('domainDetailView'); // Get the parent view
+        const domainDetailViewEl = document.getElementById('domainDetailView'); // Get the parent view
         
-        // Update the subtitle in the H3 for "Domain Statistics"
-        const statsTitleH3 = domainDetailView.querySelector('h3:first-of-type'); // More specific selector
+        const statsTitleH3 = domainDetailViewEl.querySelector('h3:first-of-type'); 
         if (statsTitleH3 && statsTitleH3.textContent.includes('Domain Statistics')) {
             let subtitleSpan = statsTitleH3.querySelector('.domain-stats-subtitle');
-            if (!subtitleSpan) { // If span doesn't exist, create and append it
-                // Get base text without potential old (non-spanned) subtitle
+            if (!subtitleSpan) {
                 let baseH3Text = "Domain Statistics"; 
                 const textNode = Array.from(statsTitleH3.childNodes).find(node => node.nodeType === Node.TEXT_NODE && node.textContent.includes("Domain Statistics"));
                 if (textNode) baseH3Text = textNode.textContent.trim();
                 
-                statsTitleH3.textContent = baseH3Text + ' '; // Add space before new span
+                statsTitleH3.textContent = baseH3Text + ' ';
                 subtitleSpan = document.createElement('span');
                 subtitleSpan.className = 'text-base font-normal text-gray-500 domain-stats-subtitle';
                 statsTitleH3.appendChild(subtitleSpan);
@@ -462,11 +475,14 @@ document.addEventListener('DOMContentLoaded', () => {
             subtitleSpan.textContent = `(${periodDisplay}, UTC)`;
         }
 
-        // Update click stats directly in their spans
-        document.getElementById('domainTotalClicks').textContent = stats.clicks?.toLocaleString() || '0';
-        document.getElementById('domainHumanClicks').textContent = stats.humanClicks?.toLocaleString() || '0';
+        // Update click stats directly in their spans by getting them here
+        const domainTotalClicksEl = document.getElementById('domainTotalClicks');
+        const domainHumanClicksEl = document.getElementById('domainHumanClicks');
 
-        // Chart rendering - this part remains the same
+        if (domainTotalClicksEl) domainTotalClicksEl.textContent = stats.clicks?.toLocaleString() || '0';
+        if (domainHumanClicksEl) domainHumanClicksEl.textContent = stats.humanClicks?.toLocaleString() || '0';
+
+        // Chart rendering
         if (stats.clickStatistics?.datasets?.[0]?.data?.length) renderLineChart('domainClicksChart', 'Clicks', stats.clickStatistics.datasets[0].data); else destroyChart('domainClicksChart');
         if (stats.referer?.length) renderBarChart('domainReferrersChart', stats.referer.map(r => r.referer || 'Direct'), stats.referer.map(r => r.score), 'Clicks', 'Referrers'); else destroyChart('domainReferrersChart');
         if (stats.browser?.length) renderBarChart('domainBrowsersChart', stats.browser.map(b => b.browser), stats.browser.map(b => b.score), 'Sessions', 'Browsers'); else destroyChart('domainBrowsersChart');
@@ -606,9 +622,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderLinkStats(stats) {
         const periodDisplay = getPeriodDisplayName(currentPeriod, customStartDate, customEndDate);
-        const linkDetailView = document.getElementById('linkDetailView');
+        const linkDetailViewEl = document.getElementById('linkDetailView'); // Get view
+        if (!linkDetailViewEl) return; // Guard if view isn't active/found
+
+        const linkStatsContainerEl = document.getElementById('linkStatsContainer'); // Get specific container
+        if (!linkStatsContainerEl) return;
         
-        const statsTitleH3 = linkDetailView.querySelector('h3:first-of-type'); // More specific selector
+        const statsTitleH3 = linkDetailViewEl.querySelector('h3:first-of-type');
         if (statsTitleH3 && statsTitleH3.textContent.includes('Link Statistics')) {
             let subtitleSpan = statsTitleH3.querySelector('.link-stats-subtitle');
             if (!subtitleSpan) {
@@ -623,7 +643,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             subtitleSpan.textContent = `(${periodDisplay}, UTC)`;
         }
-        linkStatsContainer.innerHTML = `
+        linkStatsContainerEl.innerHTML = `
             <div class="p-3 bg-teal-50 rounded-md"><span class="font-bold text-teal-700">Total Clicks:</span> ${stats.totalClicks?.toLocaleString() || 0}</div>
             <div class="p-3 bg-cyan-50 rounded-md"><span class="font-bold text-cyan-700">Human Clicks:</span> ${stats.humanClicks?.toLocaleString() || 0}</div>`;
 
@@ -664,7 +684,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (currentView === 'domainDetail' && currentDomainId) {
             ['domainClicksChart', 'domainReferrersChart', 'domainBrowsersChart', 'domainCountriesChart', 'domainOsChart'].forEach(destroyChart);
             domainStatsContainer.innerHTML = '<p>Loading new period data...</p>';
-            loadDomainDetails(currentDomainId, currentDomainHostname, false, null); // Set forceRefresh to false here
+            loadDomainDetails(currentDomainId, currentDomainHostname, false, null);
         } else if (currentView === 'linkDetail' && currentLinkId) {
             ['linkClicksChart', 'linkReferrersChart', 'linkBrowsersChart', 'linkCountriesChart', 'linkOsChart'].forEach(destroyChart);
             linkStatsContainer.innerHTML = '<p>Loading new period data...</p>';
