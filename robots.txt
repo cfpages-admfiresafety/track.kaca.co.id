@@ -1,0 +1,4 @@
+# Indexing is blocked by the site-wide X-Robots-Tag and HTML robots meta tag.
+# Crawlers must be allowed to fetch pages so they can observe the noindex rule.
+User-agent: *
+Allow: /
