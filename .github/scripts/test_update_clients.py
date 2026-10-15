@@ -57,6 +57,20 @@ def client(extra=()):
     return "|".join(values) + "\n"
 
 
+def contact_nav(multiple=True, nav_class="menu-info-kontak-container"):
+    second = (
+        '<li id="manager-2" class="menu-item"><a href="https://old.example/umar">✆ 0821 1447 7255 (Umar)</a></li>'
+        if multiple
+        else ""
+    )
+    return (
+        f'<nav class="{nav_class}" aria-label="Info Kontak"><ul>'
+        '<li id="address" class="menu-item"><a href="#">Jl. Kyai Tambak Deres 105 Surabaya</a></li>'
+        '<li id="manager-1" data-keep="yes"><a href="https://old.example/anthock">✆ 0821 1447 7155 (Anthock)</a></li>'
+        f"{second}</ul></nav>"
+    )
+
+
 class ClientsTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -72,7 +86,7 @@ class ClientsTests(unittest.TestCase):
         path.write_bytes((b"\xef\xbb\xbf" if bom else b"") + data)
         return path
 
-    def run_cli(self, clients=".clients", dry_run=False):
+    def run_cli(self, clients=".clients", dry_run=False, previous=None):
         command = [
             sys.executable,
             "-B",
@@ -88,6 +102,8 @@ class ClientsTests(unittest.TestCase):
             "--github-output",
             str(self.root / "output.txt"),
         ]
+        if previous is not None:
+            command.extend(["--previous-clients", str(previous)])
         if dry_run:
             command.append("--dry-run")
         return subprocess.run(command, text=True, capture_output=True)
@@ -114,6 +130,191 @@ class ClientsTests(unittest.TestCase):
             path.write_text("|".join(fields[offset:] + fields[:offset]), encoding="utf-8")
             parsed = MODULE.parse_clients(path)
             self.assertEqual((parsed[0].name, parsed[0].phone), (NEW_NAME, NEW_PHONE))
+
+    def test_percent_encoded_whatsapp_marker(self):
+        tracked = "https://klik.kubikel.id/%F0%9F%92%AC-anthock-toiletkubikelcoid"
+        path = self.root / ".clients"
+        path.write_text(client().replace(NEW_WA, tracked), encoding="utf-8")
+        self.assertEqual(MODULE.parse_clients(path)[0].whatsapp, tracked)
+
+    def test_derive_routes_preserves_each_displayed_contact(self):
+        whatsapp_display = "0812 3456 7890 (Ketut WhatsApp)"
+        telephone_display = "62813 7654 3210 (Ketut Telepon)"
+        content = (
+            f'<a href="https://what.sapp.my.id/legacy-2"><span>{telephone_display}</span></a>'
+            f'<a href="https://con.tact.my.id/legacy-2"><span>{whatsapp_display}</span></a>'
+            '<div class="whatsapp-floating">'
+            f'<a href="https://what.sapp.my.id/legacy"><span>{whatsapp_display}</span></a>'
+            "</div>"
+            '<div class="tlp-floating">'
+            f'<a href="https://con.tact.my.id/legacy"><span>{telephone_display}</span></a>'
+            "</div>"
+        )
+        target = self.write_fixture(content=content)
+        (self.root / ".clients").write_text("Ketut | derive-routes\n", encoding="utf-8")
+
+        summary = MODULE.update(self.root, self.root / ".clients", False)
+        changed = target.read_text(encoding="utf-8")
+        self.assertEqual(summary["changed_count"], 1)
+        self.assertIn('href="https://wa.me/6281234567890"', changed)
+        self.assertIn('href="tel:+6281376543210"', changed)
+        self.assertIn('href="https://wa.me/6281376543210"', changed)
+        self.assertIn('href="tel:+6281234567890"', changed)
+        self.assertNotIn("what.sapp.my.id", changed)
+        self.assertNotIn("con.tact.my.id", changed)
+        self.assertIn(whatsapp_display, changed)
+        self.assertIn(telephone_display, changed)
+        self.assertEqual(MODULE.update(self.root, self.root / ".clients", False)["changed_count"], 0)
+
+    def test_derive_routes_rejects_ambiguous_block_before_write(self):
+        target = self.write_fixture(
+            content=(
+                html()
+                .replace(OLD_WA, "https://what.sapp.my.id/legacy")
+                .replace(OLD_TEL, "https://con.tact.my.id/legacy")
+                .replace(
+                    f"<span>{OLD_PHONE} ({OLD_NAME})</span>",
+                    f"<span>{OLD_PHONE} ({OLD_NAME})</span><span>0812 3456 7890 (Ketut)</span>",
+                    1,
+                )
+            )
+        )
+        original = target.read_bytes()
+        (self.root / ".clients").write_text("Ketut | derive-routes\n", encoding="utf-8")
+
+        result = self.run_cli()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("one displayed phone/name", result.stderr)
+        self.assertEqual(target.read_bytes(), original)
+
+    def test_derive_routes_rejects_explicit_contact_values(self):
+        path = self.root / ".clients"
+        path.write_text(client(["derive-routes"]), encoding="utf-8")
+        with self.assertRaisesRegex(MODULE.ClientsError, "cannot include contact values"):
+            MODULE.parse_clients(path)
+
+    def test_nested_contact_blocks_are_recognized(self):
+        alternate = "0811 1111 1111 (Other Fixture)"
+        target = self.write_fixture(
+            content=f'<div class="wrapper">{html().replace(f"{OLD_PHONE} ({OLD_NAME})", alternate, 1)}</div>'
+        )
+        (self.root / ".clients").write_text(client(), encoding="utf-8")
+        self.assertEqual(MODULE.update(self.root, self.root / ".clients", False)["changed_count"], 1)
+        changed = target.read_text(encoding="utf-8")
+        self.assertIn(NEW_WA, changed)
+        self.assertNotIn(alternate, changed)
+
+    def test_floating_anchor_text_without_span_is_recognized(self):
+        target = self.write_fixture(
+            content=(
+                f'<div class="sms-floating"><a href="{OLD_WA}">'
+                f"{OLD_PHONE} ({OLD_NAME})</a></div>"
+                f'<div class="tlp-floating"><a href="{OLD_TEL}">'
+                f"{OLD_PHONE} ({OLD_NAME})</a></div>"
+            )
+        )
+        (self.root / ".clients").write_text(client(), encoding="utf-8")
+        summary = MODULE.update(self.root, self.root / ".clients", False)
+        self.assertEqual(summary["changed_count"], 1)
+        changed = target.read_text(encoding="utf-8")
+        self.assertIn(f"{NEW_PHONE} ({NEW_NAME})", changed)
+        self.assertIn(NEW_WA, changed)
+        self.assertIn(NEW_TEL, changed)
+
+    def test_empty_image_floating_blocks_gain_contact_links(self):
+        target = self.write_fixture(
+            content=(
+                '<div class="sms-floating"><img src="wa.png" alt=""></div>'
+                '<div class="tlp-floating"><img src="tel.png" alt=""></div>'
+            )
+        )
+        (self.root / ".clients").write_text(client(), encoding="utf-8")
+        self.assertEqual(
+            MODULE.update(self.root, self.root / ".clients", False)["changed_count"], 1
+        )
+        changed = target.read_text(encoding="utf-8")
+        self.assertIn(f'href="{NEW_WA}"', changed)
+        self.assertIn(f'href="{NEW_TEL}"', changed)
+        self.assertEqual(changed.count(f"{NEW_PHONE} ({NEW_NAME})"), 2)
+
+    def test_duplicate_floating_blocks_with_displays_are_all_rewritten(self):
+        other_phone = "0811 1111 1111"
+        other_name = "Other Fixture"
+        other_wa = "https://example.test/other-wa"
+        other_tel = "tel:+621111111111"
+        target = self.write_fixture(
+            content=(
+                html()
+                + html()
+                .replace(OLD_PHONE, other_phone)
+                .replace(OLD_NAME, other_name)
+                .replace(OLD_WA, other_wa)
+                .replace(OLD_TEL, other_tel)
+            )
+        )
+        (self.root / ".clients").write_text(client(), encoding="utf-8")
+        summary = MODULE.update(self.root, self.root / ".clients", False)
+        self.assertEqual(summary["changed_count"], 1)
+        changed = target.read_text(encoding="utf-8")
+        for old in (
+            OLD_PHONE,
+            OLD_NAME,
+            OLD_WA,
+            OLD_TEL,
+            other_phone,
+            other_name,
+            other_wa,
+            other_tel,
+        ):
+            self.assertNotIn(old, changed)
+        self.assertEqual(changed.count(NEW_WA), 2)
+        self.assertEqual(changed.count(NEW_TEL), 2)
+
+    def test_navigation_contact_fallback_rewrites_first_and_removes_duplicates(self):
+        target = self.write_fixture(content=contact_nav())
+        (self.root / ".clients").write_text(client(), encoding="utf-8")
+        before = target.read_bytes()
+        summary = MODULE.update(self.root, self.root / ".clients", False)
+        self.assertEqual(summary["changed_count"], 1)
+        changed = target.read_text(encoding="utf-8")
+        self.assertIn('href="https://wa.me/620000000099"', changed)
+        self.assertIn(f"{NEW_PHONE} ({NEW_NAME})", changed)
+        self.assertIn("Jl. Kyai Tambak Deres 105 Surabaya", changed)
+        self.assertNotIn("0821 1447 7255", changed)
+        self.assertIn('data-keep="yes"', changed)
+        after_first = target.read_bytes()
+        MODULE.update(self.root, self.root / ".clients", False)
+        self.assertEqual(target.read_bytes(), after_first)
+        self.assertNotEqual(before, target.read_bytes())
+
+    def test_navigation_fallback_rejects_ambiguity_before_write(self):
+        cases = [
+            contact_nav().replace(
+                'href="https://old.example/anthock">',
+                'href="https://old.example/anthock"><a href="https://other.example">',
+            ),
+            contact_nav() + contact_nav(),
+        ]
+        for index, content in enumerate(cases):
+            target = self.write_fixture(f"ambiguous-{index}.html", content)
+            original = target.read_bytes()
+            (self.root / ".clients").write_text(client(), encoding="utf-8")
+            with self.assertRaises(MODULE.ClientsError):
+                MODULE.update(self.root, self.root / ".clients", False)
+            self.assertEqual(target.read_bytes(), original)
+
+    def test_navigation_fallback_address_client_is_rejected_and_unmatched_nav_is_noop(self):
+        target = self.write_fixture(content=contact_nav(nav_class="other-menu"))
+        original = target.read_bytes()
+        (self.root / ".clients").write_text(client([OLD_ADDRESS]), encoding="utf-8")
+        self.assertEqual(MODULE.update(self.root, self.root / ".clients", False)["changed_count"], 0)
+        self.assertEqual(target.read_bytes(), original)
+
+        target = self.write_fixture("address.html", contact_nav())
+        original = target.read_bytes()
+        with self.assertRaises(MODULE.ClientsError):
+            MODULE.update(self.root, self.root / ".clients", False)
+        self.assertEqual(target.read_bytes(), original)
 
     def test_five_and_six_field_records_and_category_filter(self):
         cases = [
@@ -175,6 +376,100 @@ class ClientsTests(unittest.TestCase):
         self.assertIn("Filtered Fixture", selected.read_text(encoding="utf-8"))
         self.assertIn(NEW_NAME, default.read_text(encoding="utf-8"))
 
+    def test_filter_matches_complete_relative_filename_case_insensitively(self):
+        selected = self.write_fixture("pages/PORTABLE.HTML")
+        other = self.write_fixture("pages/not-a-match.html")
+        values = "|".join(
+            ["Filename Fixture", NEW_PHONE, NEW_WA, NEW_TEL, "portable.html"]
+        )
+        (self.root / ".clients").write_text(values + "\n", encoding="utf-8")
+        summary = MODULE.update(self.root, self.root / ".clients", False)
+        self.assertEqual(summary["changed_count"], 1)
+        self.assertIn("Filename Fixture", selected.read_text(encoding="utf-8"))
+        self.assertIn(OLD_NAME, other.read_text(encoding="utf-8"))
+
+    def test_basename_filter_ignores_directory_only_match(self):
+        selected = self.write_fixture("pages/toilet-PORTABEL-jakarta.html")
+        directory_only = self.write_fixture("portable/category/index.html")
+        values = "|".join(
+            ["Filename Fixture", NEW_PHONE, NEW_WA, NEW_TEL, "basename:portable,portabel"]
+        )
+        (self.root / ".clients").write_text(values + "\n", encoding="utf-8")
+        summary = MODULE.update(self.root, self.root / ".clients", False)
+        self.assertEqual(summary["changed_count"], 1)
+        self.assertIn("Filename Fixture", selected.read_text(encoding="utf-8"))
+        self.assertIn(OLD_NAME, directory_only.read_text(encoding="utf-8"))
+
+    def test_page_filter_includes_matching_basename_and_directory_index(self):
+        basename = self.write_fixture("pages/toilet-PORTABEL-jakarta.html")
+        directory_index = self.write_fixture("products/portable/index.html")
+        nested_index = self.write_fixture("products/portable/cities/index.html")
+        directory_non_index = self.write_fixture("products/portable/about.html")
+        unrelated = self.write_fixture("products/cubicle/index.html")
+        values = "|".join(
+            ["Filename Fixture", NEW_PHONE, NEW_WA, NEW_TEL, "page:portable,portabel"]
+        )
+        (self.root / ".clients").write_text(values + "\n", encoding="utf-8")
+        summary = MODULE.update(self.root, self.root / ".clients", False)
+        self.assertEqual(summary["changed_count"], 3)
+        for selected in (basename, directory_index, nested_index):
+            self.assertIn("Filename Fixture", selected.read_text(encoding="utf-8"))
+        for protected in (directory_non_index, unrelated):
+            self.assertIn(OLD_NAME, protected.read_text(encoding="utf-8"))
+
+    def test_filter_only_expansion_processes_directory_index(self):
+        basename = self.write_fixture("pages/toilet-portable-kupang.html")
+        directory_index = self.write_fixture("portable/index.html")
+        directory_non_index = self.write_fixture("portable/about.html")
+        unrelated = self.write_fixture("cubicle/index.html")
+        previous = self.root / "previous.clients"
+        previous.write_text(
+            "|".join(
+                [
+                    "Filename Fixture",
+                    NEW_PHONE,
+                    NEW_WA,
+                    NEW_TEL,
+                    "basename:portable,portabel",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (self.root / ".clients").write_text(
+            "|".join(
+                [
+                    "Filename Fixture",
+                    NEW_PHONE,
+                    NEW_WA,
+                    NEW_TEL,
+                    "page:portable,portabel",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        result = self.run_cli(previous=previous)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Filename Fixture", basename.read_text(encoding="utf-8"))
+        self.assertIn("Filename Fixture", directory_index.read_text(encoding="utf-8"))
+        self.assertIn(OLD_NAME, directory_non_index.read_text(encoding="utf-8"))
+        self.assertIn(OLD_NAME, unrelated.read_text(encoding="utf-8"))
+        self.assertEqual(
+            json.loads((self.root / "summary.json").read_text())["changed_count"],
+            2,
+        )
+
+    def test_overlapping_filename_filters_reject_without_writes(self):
+        target = self.write_fixture("portable-portabel.html")
+        first = "|".join(["Portable", NEW_PHONE, NEW_WA, NEW_TEL, "portable"])
+        second = "|".join(["Portabel", NEW_PHONE, NEW_WA, NEW_TEL, "portabel"])
+        (self.root / ".clients").write_text(first + "\n" + second + "\n", encoding="utf-8")
+        before = target.read_bytes()
+        with self.assertRaises(MODULE.ClientsError):
+            MODULE.update(self.root, self.root / ".clients", False)
+        self.assertEqual(target.read_bytes(), before)
+
     def test_plans_all_files_before_any_write(self):
         first = self.write_fixture("a.html")
         second = self.write_fixture(
@@ -232,6 +527,24 @@ class ClientsTests(unittest.TestCase):
         self.assertEqual(target.read_bytes(), before)
         self.assertEqual(json.loads((self.root / "summary.json").read_text())["mode"], "dry-run")
         self.assertEqual((self.root / "paths.bin").read_bytes(), b"index.html\0")
+
+    def test_previous_clients_limits_update_to_changed_row(self):
+        portable = self.write_fixture("portable.html")
+        ordinary = self.write_fixture("ordinary.html")
+        previous = self.root / "clients-before"
+        previous.write_text(client(), encoding="utf-8")
+        (self.root / ".clients").write_text(
+            "|".join(
+                ["Anthock", NEW_PHONE, NEW_WA, NEW_TEL, "page:portable,portabel"]
+            )
+            + "\n"
+            + client(["-portable,-portabel"]),
+            encoding="utf-8",
+        )
+        result = self.run_cli(previous=previous)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Anthock", portable.read_text(encoding="utf-8"))
+        self.assertIn(OLD_NAME, ordinary.read_text(encoding="utf-8"))
 
     def test_verify_git_exact_scope_and_outside_dirty_poison(self):
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
@@ -294,8 +607,21 @@ class ClientsTests(unittest.TestCase):
     def test_workflow_four_case_event_matrix(self):
         base = Path(__file__).parents[1]
         workflow = CLIENTS_FIXTURE.read_text(encoding="utf-8")
-        expression = "github.event_name == 'workflow_dispatch' && (github.ref_type != 'branch' || inputs.dry_run != false)"
-        self.assertIn(expression, workflow)
+        for expression in (
+            'INPUT_DRY_RUN: ${{ inputs.dry_run }}',
+            '"$GITHUB_EVENT_NAME" == "workflow_dispatch"',
+            'git show "${{ github.event.before }}:.clients"',
+            '--previous-clients "$RUNNER_TEMP/clients-before"',
+            '"$GITHUB_REF_TYPE" != "branch"',
+            '"$INPUT_DRY_RUN" == "true"',
+            '"$RUNNER_TEMP/clients-summary.json"',
+            '"$RUNNER_TEMP/clients-changed-paths"',
+        ):
+            self.assertIn(expression, workflow)
+        self.assertNotIn("env.DRY_RUN", workflow)
+        self.assertNotIn("runner.temp", workflow)
+        self.assertIn("git --literal-pathspecs add", workflow)
+        self.assertNotIn("git add --literal-pathspecs", workflow)
         cases = (
             ("push", "branch", True, False),
             ("workflow_dispatch", "branch", True, True),
