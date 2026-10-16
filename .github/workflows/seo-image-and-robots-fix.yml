@@ -42,7 +42,8 @@ jobs:
         env:
           TARGET_REF: ${{ github.ref_name }}
         run: |
-          git add -A robots.txt *.html */*.html
+          [ -f robots.txt ] && git add robots.txt
+          find . -type f -name "*.html" -exec git add {} +
           if git diff --cached --quiet; then
             echo "No SEO changes needed. Working tree clean."
             exit 0
